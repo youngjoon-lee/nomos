@@ -45,7 +45,13 @@ pub fn mempool_metrics_bridge(
             let metrics: MempoolMetrics = receiver.await.unwrap();
             res_tx
                 // TODO: use serde to serialize metrics
-                .send(format!("{{\"pending_tx\": {}}}", metrics.pending_txs).into())
+                .send(
+                    format!(
+                        "{{\"pending_tx\": {}, \"last_tx\": {}}}",
+                        metrics.pending_txs, metrics.last_tx_timestamp
+                    )
+                    .into(),
+                )
                 .await
                 .unwrap();
         }
