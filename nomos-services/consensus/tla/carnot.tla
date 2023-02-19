@@ -13,27 +13,32 @@ EXTENDS Integers, FiniteSets
 (*  next block, the set Node of nodes, and another set Quorum that is      *)
 (* a set of the sets of nodes which form a quorum.                         *)
 (***************************************************************************)
-CONSTANTS Node, Quorum, MaxView, Block
+CONSTANTS Node, Votes, Quorum, MaxView, Block
 
 (***************************************************************************)
 (* The following assumption asserts that Quorum is a set of subsets of the *)
 (* set Node, and that it contains at least 2/3 of acceptors                *)
+(* The following assumption asserts that Quorum Certificate is a set of subsets of the *)
+(* set Votes from Node, and that it contains at least votes 2/3 of acceptors                *)
 (***************************************************************************)
 ASSUME /\ \A Q \in Quorum : Q \subseteq Node
        /\ \A Q : Cardinality(Q) * 3 >= Cardinality(Node) * 2
+       
+ASSUME /\ \A QC \in Quorum : QC \subseteq Votes
+       /\ \A QC : Cardinality(QC) * 3 >= Cardinality(Votes) * 2
 
 View == Nat
 -----------------------------------------------------------------------------
 (***************************************************************************)
 (* The algorithm works by having nodes cast votes in numbered views.       *)
-(* Each node can cast one or more votes, where each vote cast by a node    *)
-(* has the form <<v, b>> indicating that the node  has voted for block b   *)
-(* in view  b. A block is chosen if a quorum of acceptors have voted for   *) 
-(* it in the same view  .                                                  *)
+(* Each node can cast only one vote per view , where each vote cast by a node    *)
+(* has the form <<v, b, n>> indicating that the node n has voted for block b   *)
+(* in view  v. A block is attested if a quorum of acceptors have voted for   *) 
+(* it in the same view. The proof of attestation is provided by the QC.   *)
 (*                                                                         *)
 (* We now declare the algorithm's variables 'votes', 'proposals' and       *)
 (* 'leaders'. For each node n, the value of votes[n] is the set of         *)
-(* votes cast by n and proposals[n] the set of blocks proposed by n.       *)
+(* votes cast by n (a node only needs the last voted view) and proposals[n] the set of blocks proposed by n.       *)
 (* For each view v leader[v] is the output of the magic oracle determining *)
 (* the leader for view v.                                                  *)
 (***************************************************************************)
@@ -60,13 +65,14 @@ Approved(n, v, b) == <<v, b>> \in votes[n]
 ChosenAt(v, b) == 
    \E Q \in Quorum : \A n \in Q : Approved(n, v, b)
    (************************************************************************)
-   (* True iff a quorum of acceptors have all approved block b in view v   *)
+   (* True iff a quorum of acceptors have all approved block b in view v with a valid qc of the parent block*)
    (************************************************************************)
 
 LeaderProposed(n, v, b) == \/ v = 0 \* special case for genesis block
                            \/ \E prop \in proposals[leader[v]]: 
                                 /\ prop[1] = v
                                 /\ prop[2] = b 
+                                /\ prop[3] = qc 
     (************************************************************************)
     (* True iff (if and only if) the leader for view v has proposed block b *)
     (* in view v. View 0 is treated specially as the genesis block is       *)
