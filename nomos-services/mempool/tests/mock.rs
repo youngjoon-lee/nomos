@@ -79,7 +79,7 @@ fn test_mockmempool() {
         // subscribe to the mock content topic
         network_outbound
             .send(NetworkMsg::Process(MockBackendMessage::RelaySubscribe {
-                topic: MOCK_TX_CONTENT_TOPIC.content_topic_name,
+                topic: MOCK_TX_CONTENT_TOPIC.content_topic_name.to_string(),
             }))
             .await
             .unwrap();

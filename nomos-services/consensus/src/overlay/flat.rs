@@ -29,32 +29,38 @@ impl Threshold {
 /// As far as the API is concerned, this should be equivalent to any other
 /// overlay and far simpler to implement.
 /// For this reason, this might act as a 'reference' overlay for testing.
-pub struct Flat {
+pub struct Flat<Tx> {
     // TODO: this should be a const param, but we can't do that yet
     threshold: Threshold,
     node_id: NodeId,
     view_n: u64,
+    _tx: std::marker::PhantomData<Tx>,
 }
 
-impl Flat {
+impl<Tx: TxCodex> Flat<Tx> {
     pub fn new(view_n: u64, node_id: NodeId) -> Self {
         Self {
             threshold: DEFAULT_THRESHOLD,
             node_id,
             view_n,
+            _tx: std::marker::PhantomData,
         }
     }
 
-    fn approve(&self, _block: &Block) -> Approval {
+    fn approve(&self, _block: &Block<Tx>) -> Approval {
         // we still need to define how votes look like
         todo!()
     }
 }
 
 #[async_trait::async_trait]
-impl<Network: NetworkAdapter + Sync, Fountain: FountainCode + Sync> Overlay<Network, Fountain>
-    for Flat
+impl<Network: NetworkAdapter + Sync, Fountain: FountainCode + Sync, Tx> Overlay<Network, Fountain>
+    for Flat<Tx>
+where
+    Tx: TxCodex + Clone + Send + Sync + 'static,
 {
+    type Tx = Tx;
+
     fn new(view: &View, node: NodeId) -> Self {
         Flat::new(view.view_n, node)
     }
@@ -64,16 +70,19 @@ impl<Network: NetworkAdapter + Sync, Fountain: FountainCode + Sync> Overlay<Netw
         view: &View,
         adapter: &Network,
         fountain: &Fountain,
-    ) -> Result<Block, FountainError> {
+    ) -> Result<Block<Tx>, FountainError> {
         assert_eq!(view.view_n, self.view_n, "view_n mismatch");
         let message_stream = adapter.proposal_chunks_stream(FLAT_COMMITTEE, view).await;
-        fountain.decode(message_stream).await.map(Block::from_bytes)
+        fountain
+            .decode(message_stream)
+            .await
+            .map(|b| Block::<Tx>::from_bytes(&b))
     }
 
     async fn broadcast_block(
         &self,
         view: &View,
-        block: Block,
+        block: Block<Tx>,
         adapter: &Network,
         fountain: &Fountain,
     ) {
@@ -93,7 +102,7 @@ impl<Network: NetworkAdapter + Sync, Fountain: FountainCode + Sync> Overlay<Netw
     async fn approve_and_forward(
         &self,
         view: &View,
-        block: &Block,
+        block: &Block<Tx>,
         adapter: &Network,
         _next_view: &View,
     ) -> Result<(), Box<dyn Error>> {

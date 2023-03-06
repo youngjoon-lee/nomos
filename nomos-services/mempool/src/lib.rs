@@ -52,6 +52,10 @@ pub enum MempoolMsg<Tx, Id> {
         ids: Vec<Id>,
         block: BlockHeader,
     },
+    BlockTransactions {
+        block: BlockId,
+        reply_channel: Sender<Box<dyn Iterator<Item = Tx> + Send>>,
+    },
     Metrics {
         reply_channel: Sender<MempoolMetrics>,
     },
@@ -70,6 +74,9 @@ impl<Tx: Debug, Id: Debug> Debug for MempoolMsg<Tx, Id> {
                     f,
                     "MempoolMsg::MarkInBlock{{ids: {ids:?}, block: {block:?}}}"
                 )
+            }
+            Self::BlockTransactions { block, .. } => {
+                write!(f, "MempoolMsg::BlockTransactions{{block: {block:?}}}")
             }
             Self::Metrics { .. } => write!(f, "MempoolMsg::Metrics"),
         }
@@ -150,6 +157,11 @@ where
                         }
                         MempoolMsg::MarkInBlock { ids, block } => {
                             pool.mark_in_block(&ids, block);
+                        }
+                        MempoolMsg::BlockTransactions { block, reply_channel } => {
+                            reply_channel.send(pool.block_transactions(block)).unwrap_or_else(|_| {
+                                tracing::debug!("could not send back block transactions")
+                            });
                         }
                         MempoolMsg::Prune { ids } => { pool.prune(&ids); },
                         MempoolMsg::Metrics { reply_channel } => {

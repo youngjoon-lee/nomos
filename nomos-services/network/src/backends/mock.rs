@@ -1,6 +1,7 @@
 // internal
 use super::*;
 
+use bytes::BufMut;
 use futures::future::BoxFuture;
 // crates
 use overwatch_rs::services::state::NoState;
@@ -14,6 +15,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
+
 use tokio::sync::broadcast::{self, Receiver, Sender};
 use tracing::debug;
 
@@ -40,15 +42,27 @@ impl MockContentTopic {
             content_topic_name,
         }
     }
+
+    pub fn to_bytes(&self) -> bytes::Bytes {
+        let mut buf = bytes::BytesMut::new();
+        // Encoding:
+        // | version 8 bits| application name len 8 bits| content topic name len 8 bits | application name | content topic name |
+        buf.put_u64(self.version as u64);
+        buf.put_u64(self.application_name.len() as u64);
+        buf.put_u64(self.content_topic_name.len() as u64);
+        buf.put_slice(self.application_name.as_bytes());
+        buf.put_slice(self.content_topic_name.as_bytes());
+        buf.freeze()
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MockPubSubTopic {
-    pub topic_name: &'static str,
+    pub topic_name: String,
 }
 
 impl MockPubSubTopic {
-    pub const fn new(topic_name: &'static str) -> Self {
+    pub const fn new(topic_name: String) -> Self {
         Self { topic_name }
     }
 }
@@ -88,13 +102,28 @@ impl MockMessage {
     pub fn payload(&self) -> String {
         self.payload.clone()
     }
+
+    pub fn to_bytes(&self) -> bytes::Bytes {
+        let mut buf = bytes::BytesMut::new();
+
+        // Encoding:
+        // | version 8 bits | timestamp 8 bits | topic len 8 bits | payload len 8 bits | topic | payload |
+        buf.put_u64(self.version as u64);
+        buf.put_u64(self.timestamp as u64);
+        let topic = self.content_topic.to_bytes();
+        buf.put_u64(topic.len() as u64);
+        buf.put_u64(self.payload.len() as u64);
+        buf.put_slice(topic.as_ref());
+        buf.put_slice(self.payload.as_bytes());
+        buf.freeze()
+    }
 }
 
 #[derive(Clone)]
 pub struct Mock {
-    messages: Arc<Mutex<HashMap<&'static str, Vec<MockMessage>>>>,
+    messages: Arc<Mutex<HashMap<String, Vec<MockMessage>>>>,
     message_event: Sender<NetworkEvent>,
-    subscribed_topics: Arc<Mutex<HashSet<&'static str>>>,
+    subscribed_topics: Arc<Mutex<HashSet<String>>>,
     config: MockConfig,
 }
 
@@ -120,17 +149,17 @@ pub enum MockBackendMessage {
         >,
     },
     Broadcast {
-        topic: &'static str,
+        topic: String,
         msg: MockMessage,
     },
     RelaySubscribe {
-        topic: &'static str,
+        topic: String,
     },
     RelayUnSubscribe {
-        topic: &'static str,
+        topic: String,
     },
     Query {
-        topic: &'static str,
+        topic: String,
         tx: oneshot::Sender<Vec<MockMessage>>,
     },
 }
@@ -237,7 +266,7 @@ impl NetworkBackend for Mock {
                 config
                     .predefined_messages
                     .iter()
-                    .map(|p| (p.content_topic.content_topic_name, Vec::new()))
+                    .map(|p| (p.content_topic.content_topic_name.to_string(), Vec::new()))
                     .collect(),
             )),
             message_event,
@@ -273,7 +302,7 @@ impl NetworkBackend for Mock {
             }
             MockBackendMessage::RelayUnSubscribe { topic } => {
                 tracing::info!("processed relay unsubscription for topic: {topic}");
-                self.subscribed_topics.lock().unwrap().remove(topic);
+                self.subscribed_topics.lock().unwrap().remove(&topic);
             }
             MockBackendMessage::Query { topic, tx } => {
                 tracing::info!("processed query");
@@ -342,7 +371,7 @@ mod tests {
         // broadcast
         for val in FOO_BROADCAST_MESSAGES {
             mock.process(MockBackendMessage::Broadcast {
-                topic: "foo",
+                topic: "foo".to_string(),
                 msg: MockMessage {
                     payload: val.to_string(),
                     content_topic: MockContentTopic {
@@ -359,7 +388,7 @@ mod tests {
 
         for val in BAR_BROADCAST_MESSAGES {
             mock.process(MockBackendMessage::Broadcast {
-                topic: "bar",
+                topic: "bar".to_string(),
                 msg: MockMessage {
                     payload: val.to_string(),
                     content_topic: MockContentTopic {
@@ -377,7 +406,7 @@ mod tests {
         // query
         let (qtx, qrx) = oneshot::channel();
         mock.process(MockBackendMessage::Query {
-            topic: "foo",
+            topic: "foo".to_string(),
             tx: qtx,
         })
         .await;
@@ -388,20 +417,28 @@ mod tests {
         }
 
         // subscribe
-        mock.process(MockBackendMessage::RelaySubscribe { topic: "foo" })
-            .await;
-        mock.process(MockBackendMessage::RelaySubscribe { topic: "bar" })
-            .await;
+        mock.process(MockBackendMessage::RelaySubscribe {
+            topic: "foo".to_string(),
+        })
+        .await;
+        mock.process(MockBackendMessage::RelaySubscribe {
+            topic: "bar".to_string(),
+        })
+        .await;
         assert!(mock.subscribed_topics.lock().unwrap().contains("foo"));
         assert!(mock.subscribed_topics.lock().unwrap().contains("bar"));
 
         // unsubscribe
-        mock.process(MockBackendMessage::RelayUnSubscribe { topic: "foo" })
-            .await;
+        mock.process(MockBackendMessage::RelayUnSubscribe {
+            topic: "foo".to_string(),
+        })
+        .await;
         assert!(!mock.subscribed_topics.lock().unwrap().contains("foo"));
         assert!(mock.subscribed_topics.lock().unwrap().contains("bar"));
-        mock.process(MockBackendMessage::RelayUnSubscribe { topic: "bar" })
-            .await;
+        mock.process(MockBackendMessage::RelayUnSubscribe {
+            topic: "bar".to_string(),
+        })
+        .await;
         assert!(!mock.subscribed_topics.lock().unwrap().contains("foo"));
         assert!(!mock.subscribed_topics.lock().unwrap().contains("bar"));
     }

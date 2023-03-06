@@ -2,7 +2,7 @@
 
 // crates
 use futures::{Stream, StreamExt};
-use nomos_core::tx::mock::MockTransactionMsg;
+use nomos_core::tx::mock::{MockTransaction, MockTransactionMsg};
 use nomos_network::backends::mock::{
     EventKind, Mock, MockBackendMessage, MockContentTopic, NetworkEvent,
 };
@@ -48,7 +48,7 @@ impl NetworkAdapter for MockAdapter {
 
         if let Err((e, _)) = network_relay
             .send(NetworkMsg::Process(MockBackendMessage::RelaySubscribe {
-                topic: MOCK_PUB_SUB_TOPIC,
+                topic: MOCK_PUB_SUB_TOPIC.to_string(),
             }))
             .await
         {
@@ -77,9 +77,11 @@ impl NetworkAdapter for MockAdapter {
                     Ok(NetworkEvent::RawMessage(message)) => {
                         tracing::info!("Received message: {:?}", message.payload());
                         if message.content_topic() == MOCK_TX_CONTENT_TOPIC {
-                            Some(MockTransactionMsg::Request(message))
+                            Some(MockTransactionMsg::Request(MockTransaction::from(&message)))
                         } else {
-                            Some(MockTransactionMsg::Response(message))
+                            Some(MockTransactionMsg::Response(MockTransaction::from(
+                                &message,
+                            )))
                         }
                     }
                     Err(_e) => None,

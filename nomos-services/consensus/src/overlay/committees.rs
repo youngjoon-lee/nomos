@@ -8,12 +8,12 @@ use crate::network::messages::ProposalChunkMsg;
 use crate::network::NetworkAdapter;
 
 /// View of the tree overlay centered around a specific member
-pub struct Member<const C: usize> {
+pub struct Member<Tx, const C: usize> {
     // id is not used now, but gonna probably used it for later checking later on
     #[allow(dead_code)]
     id: NodeId,
     committee: Committee,
-    committees: Committees<C>,
+    committees: Committees<Tx, C>,
     view_n: u64,
 }
 
@@ -21,19 +21,23 @@ pub struct Member<const C: usize> {
 #[derive(Copy, Clone)]
 pub struct Committee(usize);
 
-pub struct Committees<const C: usize> {
+pub struct Committees<Tx, const C: usize> {
     nodes: Box<[NodeId]>,
+    _tx: std::marker::PhantomData<Tx>,
 }
 
-impl<const C: usize> Committees<C> {
+impl<Tx, const C: usize> Committees<Tx, C> {
     pub fn new(view: &View) -> Self {
         let mut nodes = view.staking_keys.keys().cloned().collect::<Box<[NodeId]>>();
         let mut rng = rand_chacha::ChaCha20Rng::from_seed(view.seed);
         nodes.shuffle(&mut rng);
-        Self { nodes }
+        Self {
+            nodes,
+            _tx: std::marker::PhantomData,
+        }
     }
 
-    pub fn into_member(self, id: NodeId, view: &View) -> Option<Member<C>> {
+    pub fn into_member(self, id: NodeId, view: &View) -> Option<Member<Tx, C>> {
         let member_idx = self.nodes.iter().position(|m| m == &id)?;
         Some(Member {
             committee: Committee(member_idx / C),
@@ -84,7 +88,7 @@ impl Committee {
     }
 }
 
-impl<const C: usize> Member<C> {
+impl<Tx, const C: usize> Member<Tx, C> {
     /// Return other members of this committee
     pub fn peers(&self) -> &[NodeId] {
         self.committees
@@ -109,9 +113,13 @@ impl<const C: usize> Member<C> {
 }
 
 #[async_trait::async_trait]
-impl<Network: NetworkAdapter + Sync, Fountain: FountainCode + Sync, const C: usize>
-    Overlay<Network, Fountain> for Member<C>
+impl<Network: NetworkAdapter + Sync, Fountain: FountainCode + Sync, Tx, const C: usize>
+    Overlay<Network, Fountain> for Member<Tx, C>
+where
+    Tx: TxCodex + Clone + Send + Sync + 'static,
 {
+    type Tx = Tx;
+
     // we still need view here to help us initialize
     fn new(view: &View, node: NodeId) -> Self {
         let committees = Committees::new(view);
@@ -123,17 +131,20 @@ impl<Network: NetworkAdapter + Sync, Fountain: FountainCode + Sync, const C: usi
         view: &View,
         adapter: &Network,
         fountain: &Fountain,
-    ) -> Result<Block, FountainError> {
+    ) -> Result<Block<Tx>, FountainError> {
         assert_eq!(view.view_n, self.view_n, "view_n mismatch");
         let committee = self.committee;
         let message_stream = adapter.proposal_chunks_stream(committee, view).await;
-        fountain.decode(message_stream).await.map(Block::from_bytes)
+        fountain
+            .decode(message_stream)
+            .await
+            .map(|b| Block::<Tx>::from_bytes(&b))
     }
 
     async fn broadcast_block(
         &self,
         view: &View,
-        block: Block,
+        block: Block<Tx>,
         adapter: &Network,
         fountain: &Fountain,
     ) {
@@ -162,7 +173,7 @@ impl<Network: NetworkAdapter + Sync, Fountain: FountainCode + Sync, const C: usi
     async fn approve_and_forward(
         &self,
         view: &View,
-        _block: &Block,
+        _block: &Block<Tx>,
         _adapter: &Network,
         _next_view: &View,
     ) -> Result<(), Box<dyn Error>> {
