@@ -151,6 +151,7 @@ where
                             }
                         }
                         MempoolMsg::View { ancestor_hint, reply_channel } => {
+                            tracing::info!("view ancestor_hint: {ancestor_hint:#?}");
                             reply_channel.send(pool.view(ancestor_hint)).unwrap_or_else(|_| {
                                 tracing::debug!("could not send back pool view")
                             });

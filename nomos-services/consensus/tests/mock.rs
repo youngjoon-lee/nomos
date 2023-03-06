@@ -1,5 +1,8 @@
 use nomos_consensus::{
-    network::{adapters::mock::MockAdapter as ConsensusMockAdapter, messages::ApprovalMsg},
+    network::{
+        adapters::mock::{MockAdapter as ConsensusMockAdapter, MOCK_BLOCK_CONTENT_TOPIC},
+        messages::ApprovalMsg,
+    },
     overlay::flat::Flat,
     CarnotConsensus, CarnotSettings,
 };
@@ -19,7 +22,7 @@ use overwatch_rs::{overwatch::OverwatchRunner, services::handle::ServiceHandle};
 
 use nomos_mempool::{
     backend::mockpool::MockPool,
-    network::adapters::mock::{MockAdapter, MOCK_TX_CONTENT_TOPIC},
+    network::adapters::mock::{MockAdapter, MOCK_CONTENT_TOPIC, MOCK_TX_CONTENT_TOPIC},
     MempoolMsg, MempoolService,
 };
 
@@ -44,12 +47,26 @@ struct MockPoolNode {
 fn test_carnot() {
     const KEY: [u8; 32] = [0; 32];
 
-    let predefined_messages = vec![MockMessage {
-        payload: "This is foo".to_string(),
-        content_topic: MOCK_TX_CONTENT_TOPIC,
-        version: 0,
-        timestamp: 0,
-    }];
+    let predefined_messages = vec![
+        MockMessage {
+            payload: String::from_utf8_lossy(&[0; 32]).to_string(),
+            content_topic: MOCK_BLOCK_CONTENT_TOPIC,
+            version: 0,
+            timestamp: 0,
+        },
+        MockMessage {
+            payload: String::from_utf8_lossy(&[0; 32]).to_string(),
+            content_topic: MOCK_TX_CONTENT_TOPIC,
+            version: 0,
+            timestamp: 0,
+        },
+        MockMessage {
+            payload: String::from_utf8_lossy(&[1; 32]).to_string(),
+            content_topic: MOCK_TX_CONTENT_TOPIC,
+            version: 0,
+            timestamp: 0,
+        },
+    ];
 
     let app = OverwatchRunner::<MockPoolNode>::run(
         MockPoolNodeServiceSettings {
@@ -105,37 +122,6 @@ fn test_carnot() {
             })
             .collect::<Vec<_>>();
 
-        // if !items.is_empty() {
-        //     assert_eq!(items.len(), 1);
-        //     assert_eq!(
-        //         items[0],
-        //         MockMessage {
-        //             payload: String::from_utf8_lossy(&ApprovalMsg::from_bytes(&KEY).as_bytes())
-        //                 .to_string(),
-        //             content_topic: MOCK_APPROVAL_CONTENT_TOPIC,
-        //             version: 1,
-        //             timestamp: 0,
-        //         }
-        //     );
-        // }
-
-        // now the first transcation is in the mempool, we can mark it as in block
-        let txid = MockTxId::from(&MockTransactionMsg::Request(MockTransaction::from(
-            &MockMessage {
-                payload: "This is foo".to_string(),
-                content_topic: MOCK_TX_CONTENT_TOPIC,
-                version: 0,
-                timestamp: 0,
-            },
-        )));
-        mempool_outbound
-            .send(MempoolMsg::MarkInBlock {
-                ids: vec![txid],
-                block: nomos_core::block::BlockHeader,
-            })
-            .await
-            .unwrap();
-
         // wait the mempool move from the transaction to the in_block_txs
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
@@ -161,7 +147,6 @@ fn test_carnot() {
                 }
             })
             .collect::<Vec<_>>();
-
         // assert_eq!(
         //     items,
         //     vec![MockMessage {

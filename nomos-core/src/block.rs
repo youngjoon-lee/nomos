@@ -13,13 +13,20 @@ pub struct Block<Tx: TxCodex> {
 }
 
 /// A block header
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct BlockHeader;
 
 /// Identifier of a block
 pub type BlockId = [u8; 32];
 
 impl<Tx: TxCodex> Block<Tx> {
+    pub fn new(header: BlockHeader, txs: impl Iterator<Item = Tx>) -> Self {
+        Self {
+            header,
+            transactions: txs.collect(),
+        }
+    }
+
     /// Encode block into bytes
     pub fn as_bytes(&self) -> Bytes {
         Bytes::new()

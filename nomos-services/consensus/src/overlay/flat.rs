@@ -49,7 +49,7 @@ impl<Tx: TxCodex> Flat<Tx> {
 
     fn approve(&self, _block: &Block<Tx>) -> Approval {
         // we still need to define how votes look like
-        todo!()
+        Approval
     }
 }
 
@@ -129,7 +129,6 @@ where
         // block is approved by a share of the nodes
         let mut approvals = HashSet::new();
         let mut stream = Box::into_pin(adapter.approvals_stream(FLAT_COMMITTEE, view).await);
-
         // Shadow the original binding so that it can't be directly accessed
         // ever again.
         while let Some(approval) = stream.next().await {
@@ -140,6 +139,7 @@ where
             let threshold =
                 (self.threshold.num * view.staking_keys.len() as u64 + self.threshold.den - 1)
                     / self.threshold.den;
+
             if approvals.len() as u64 >= threshold {
                 // consensus reached
                 // FIXME: build a real QC

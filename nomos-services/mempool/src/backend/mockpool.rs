@@ -38,8 +38,8 @@ where
 
 impl<Id, Tx> MemPool for MockPool<Id, Tx>
 where
-    Id: for<'t> From<&'t Tx> + PartialOrd + Ord + Eq + Hash + Clone,
-    Tx: Clone + Send + Sync + 'static + Hash,
+    Id: for<'t> From<&'t Tx> + PartialOrd + Ord + Eq + Hash + Clone + core::fmt::Debug,
+    Tx: core::fmt::Debug + Clone + Send + Sync + 'static + Hash,
 {
     type Settings = ();
     type Tx = Tx;
@@ -79,6 +79,9 @@ where
     }
 
     fn block_transactions(&self, block: BlockId) -> Box<dyn Iterator<Item = Self::Tx> + Send> {
+        for tx in &self.pending_txs {
+            eprintln!("pending {:?}", tx);
+        }
         let empty = Vec::new();
         match self.in_block_txs.get(&block) {
             Some(txs) => Box::new(txs.clone().into_iter()),

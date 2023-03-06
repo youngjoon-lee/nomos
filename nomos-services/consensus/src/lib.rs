@@ -246,7 +246,6 @@ impl View {
 
         // We need to build the QC for the block we are proposing
         let qc = overlay.build_qc(self, adapter).await;
-        eprintln!("here");
         let LeadershipResult::Leader { block, _view }  = leadership
             .try_propose_block(self, tip, qc)
             .await else { panic!("we are leader")};
@@ -299,7 +298,7 @@ impl View {
     }
 
     pub fn is_leader(&self, _node_id: NodeId) -> bool {
-        false
+        true
     }
 
     pub fn id(&self) -> u64 {

@@ -1,5 +1,9 @@
 use bytes::Bytes;
 use futures::StreamExt;
+use nomos_core::tx::{
+    mock::{MockTransaction, MockTransactionMsg},
+    TxCodex,
+};
 use nomos_network::{
     backends::mock::{
         EventKind, Mock, MockBackendMessage, MockContentTopic, MockMessage, NetworkEvent,
@@ -19,8 +23,9 @@ use crate::{
 };
 
 const MOCK_PUB_SUB_TOPIC: &str = "MockPubSubTopic";
-const MOCK_BLOCK_CONTENT_TOPIC: MockContentTopic = MockContentTopic::new("MockSim", 1, "MockBlock");
-const MOCK_APPROVAL_CONTENT_TOPIC: MockContentTopic =
+pub const MOCK_BLOCK_CONTENT_TOPIC: MockContentTopic =
+    MockContentTopic::new("MockSim", 1, "MockBlock");
+pub const MOCK_APPROVAL_CONTENT_TOPIC: MockContentTopic =
     MockContentTopic::new("MockSim", 1, "MockApproval");
 
 pub struct MockAdapter {
@@ -77,8 +82,15 @@ impl NetworkAdapter for MockAdapter {
                             if MOCK_BLOCK_CONTENT_TOPIC.content_topic_name
                                 == message.content_topic().content_topic_name
                             {
-                                let payload = message.payload();
-                                Some(ProposalChunkMsg::from_bytes(payload.as_bytes()).chunk)
+                                Some(
+                                    ProposalChunkMsg::from_bytes(
+                                        &MockTransactionMsg::Request(MockTransaction::from(
+                                            &message,
+                                        ))
+                                        .encode(),
+                                    )
+                                    .chunk,
+                                )
                             } else {
                                 None
                             }
@@ -128,14 +140,8 @@ impl NetworkAdapter for MockAdapter {
                 match msg {
                     Ok(event) => match event {
                         NetworkEvent::RawMessage(message) => {
-                            if MOCK_APPROVAL_CONTENT_TOPIC.content_topic_name
-                                == message.content_topic().content_topic_name
-                            {
-                                let payload = message.payload();
-                                Some(ApprovalMsg::from_bytes(payload.as_bytes()).approval)
-                            } else {
-                                None
-                            }
+                            tracing::info!("Approve message: {:?}", message);
+                            Some(ApprovalMsg::from_bytes(message.payload.as_bytes()).approval)
                         }
                     },
                     Err(_e) => None,
