@@ -14,7 +14,7 @@ struct Enclave {
 
 pub struct Leadership<Tx, Id> {
     key: Enclave,
-    mempool: OutboundRelay<MempoolMsg<Tx, Id>>,
+    pub(crate) mempool: OutboundRelay<MempoolMsg<Tx, Id>>,
 }
 
 pub enum LeadershipResult<'view, Tx: TxCodex> {
@@ -47,10 +47,21 @@ impl<Tx: TxCodex, Id> Leadership<Tx, Id> {
         let fake_ancestor_hint = [0u8; 32];
         if view.is_leader(self.key.key) {
             let (tx, rx) = tokio::sync::oneshot::channel();
-            self.mempool.send(MempoolMsg::View {
-                ancestor_hint: fake_ancestor_hint,
-                reply_channel: tx,
-            });
+            match self
+                .mempool
+                .send(MempoolMsg::View {
+                    ancestor_hint: fake_ancestor_hint,
+                    reply_channel: tx,
+                })
+                .await
+            {
+                Ok(_) => {}
+                Err((e, msg)) => {
+                    tracing::error!(err=%e);
+                    panic!("{e}");
+                }
+            }
+
             let iter = match rx.await {
                 Ok(iter) => iter,
                 Err(e) => {
@@ -61,7 +72,6 @@ impl<Tx: TxCodex, Id> Leadership<Tx, Id> {
 
             LeadershipResult::Leader {
                 _view: PhantomData,
-                // block: todo!("form a block from the returned iterator"),
                 block: Block::<Tx>::new(BlockHeader, iter),
             }
         } else {

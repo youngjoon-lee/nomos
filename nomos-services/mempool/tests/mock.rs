@@ -1,6 +1,6 @@
 use nomos_core::{
     block::BlockId,
-    tx::mock::{MockTransactionMsg, MockTxId},
+    tx::mock::{MockTransaction, MockTransactionMsg, MockTxId},
 };
 use nomos_log::{Logger, LoggerSettings};
 use nomos_network::{
@@ -32,21 +32,21 @@ fn test_mockmempool() {
         MockMessage {
             payload: "This is foo".to_string(),
             content_topic: MOCK_TX_CONTENT_TOPIC,
-            version: 0,
+            version: 1,
             timestamp: 0,
         },
         MockMessage {
             payload: "This is bar".to_string(),
             content_topic: MOCK_TX_CONTENT_TOPIC,
-            version: 0,
+            version: 1,
             timestamp: 0,
         },
     ];
 
     let exp_txns = predefined_messages
         .iter()
-        .cloned()
-        .collect::<std::collections::HashSet<_>>();
+        .map(MockTransaction::from)
+        .collect::<Vec<_>>();
 
     let app = OverwatchRunner::<MockPoolNode>::run(
         MockPoolNodeServiceSettings {
@@ -99,7 +99,6 @@ fn test_mockmempool() {
             let items = mrx
                 .await
                 .unwrap()
-                .into_iter()
                 .filter_map(|tx| {
                     if let MockTransactionMsg::Request(msg) = tx {
                         Some(msg)
@@ -107,8 +106,7 @@ fn test_mockmempool() {
                         None
                     }
                 })
-                .collect::<std::collections::HashSet<_>>();
-
+                .collect::<Vec<_>>();
             if items.len() == exp_txns.len() {
                 assert_eq!(exp_txns, items);
                 exist.store(true, std::sync::atomic::Ordering::SeqCst);

@@ -13,7 +13,6 @@ mod tip;
 
 // std
 use std::collections::BTreeMap;
-use std::error::Error;
 use std::fmt::Debug;
 // crates
 // internal
@@ -110,8 +109,8 @@ where
     A: NetworkAdapter + Send + Sync + 'static,
     P: MemPool + Send + Sync + 'static,
     P::Settings: Send + Sync + 'static,
-    P::Tx: Debug + TxCodex + Send + Sync + 'static,
-    P::Id: Debug + Send + Sync + 'static,
+    P::Tx: Debug + Clone + TxCodex + Send + Sync + 'static,
+    P::Id: Debug + for<'a> From<&'a P::Tx> + Send + Sync + 'static,
     M: MempoolAdapter<Tx = P::Tx> + Send + Sync + 'static,
     O: Overlay<A, F, Tx = P::Tx> + Send + Sync + 'static,
 {
@@ -163,14 +162,29 @@ where
             // be spawned as a separate future
 
             // FIXME: this should probably have a timer to detect failed rounds
-            let res = cur_view
+            // let res = cur_view
+            //     .resolve::<A, O, _, _>(private_key, &tip, &network_adapter, &fountain, &leadership)
+            //     .await;
+            match cur_view
                 .resolve::<A, O, _, _>(private_key, &tip, &network_adapter, &fountain, &leadership)
-                .await;
-            match res {
-                Ok((_block, view)) => {
+                .await
+            {
+                Ok((block, view)) => {
                     // resolved block, mark as verified and possibly update the tip
                     // not sure what mark as verified means, e.g. if we want an event subscription
                     // system for this to be used for example by the ledger, storage and mempool
+                    leadership
+                        .mempool
+                        .send(nomos_mempool::MempoolMsg::MarkInBlock {
+                            ids: block.transactions().iter().map(P::Id::from).collect(),
+                            block: block.header(),
+                        })
+                        .await
+                        .map_err(|(e, _)| {
+                            tracing::error!("Error while sending MarkInBlock message: {}", e);
+                            e
+                        })?;
+
                     cur_view = view;
                 }
                 Err(e) => {
@@ -201,7 +215,7 @@ impl View {
         adapter: &A,
         fountain: &F,
         leadership: &Leadership<O::Tx, Id>,
-    ) -> Result<(Block<O::Tx>, View), Box<dyn Error>>
+    ) -> Result<(Block<O::Tx>, View), overwatch_rs::DynError>
     where
         A: NetworkAdapter + Send + Sync + 'static,
         F: FountainCode,

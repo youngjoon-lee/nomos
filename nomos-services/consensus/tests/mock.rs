@@ -1,13 +1,10 @@
 use nomos_consensus::{
-    network::{
-        adapters::mock::{MockAdapter as ConsensusMockAdapter, MOCK_BLOCK_CONTENT_TOPIC},
-        messages::ApprovalMsg,
-    },
+    network::adapters::mock::{MockAdapter as ConsensusMockAdapter, MOCK_BLOCK_CONTENT_TOPIC},
     overlay::flat::Flat,
     CarnotConsensus, CarnotSettings,
 };
 use nomos_core::{
-    block::{BlockHeader, BlockId},
+    block::BlockHeader,
     fountain::mock::MockFountain,
     tx::mock::{MockTransaction, MockTransactionMsg, MockTxId},
 };
@@ -22,7 +19,7 @@ use overwatch_rs::{overwatch::OverwatchRunner, services::handle::ServiceHandle};
 
 use nomos_mempool::{
     backend::mockpool::MockPool,
-    network::adapters::mock::{MockAdapter, MOCK_CONTENT_TOPIC, MOCK_TX_CONTENT_TOPIC},
+    network::adapters::mock::{MockAdapter, MOCK_TX_CONTENT_TOPIC},
     MempoolMsg, MempoolService,
 };
 
@@ -45,8 +42,6 @@ struct MockPoolNode {
 
 #[test]
 fn test_carnot() {
-    const KEY: [u8; 32] = [0; 32];
-
     let predefined_messages = vec![
         MockMessage {
             payload: String::from_utf8_lossy(&[0; 32]).to_string(),
@@ -66,6 +61,21 @@ fn test_carnot() {
             version: 0,
             timestamp: 0,
         },
+    ];
+
+    let expected = vec![
+        MockTransaction::from(&MockMessage {
+            payload: String::from_utf8_lossy(&[0; 32]).to_string(),
+            content_topic: MOCK_TX_CONTENT_TOPIC,
+            version: 0,
+            timestamp: 0,
+        }),
+        MockTransaction::from(&MockMessage {
+            payload: String::from_utf8_lossy(&[1; 32]).to_string(),
+            content_topic: MOCK_TX_CONTENT_TOPIC,
+            version: 0,
+            timestamp: 0,
+        }),
     ];
 
     let app = OverwatchRunner::<MockPoolNode>::run(
@@ -94,38 +104,9 @@ fn test_carnot() {
 
     app.spawn(async move {
         let mempool_outbound = mempool.connect().await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-        // wait the first trasaction to be processed
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
-        let (mtx, mrx) = tokio::sync::oneshot::channel();
-        mempool_outbound
-            .send(MempoolMsg::View {
-                ancestor_hint: BlockId::default(),
-                reply_channel: mtx,
-            })
-            .await
-            .unwrap();
-
-        // send view message to mempool, and check if the previous transaction has been in the pending txs
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-        let items = mrx
-            .await
-            .unwrap()
-            .into_iter()
-            .filter_map(|tx| {
-                if let MockTransactionMsg::Response(msg) = tx {
-                    Some(msg)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-
-        // wait the mempool move from the transaction to the in_block_txs
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
-        // send block view message to mempool, and check if the previous transaction has been in the in_block_txs
+        // send block transactions message to mempool, and check if the previous transaction has been in the in_block_txs
         let (mtx, mrx) = tokio::sync::oneshot::channel();
         mempool_outbound
             .send(MempoolMsg::BlockTransactions {
@@ -138,7 +119,6 @@ fn test_carnot() {
         let items = mrx
             .await
             .unwrap()
-            .into_iter()
             .filter_map(|tx| {
                 if let MockTransactionMsg::Request(msg) = tx {
                     Some(msg)
@@ -147,15 +127,8 @@ fn test_carnot() {
                 }
             })
             .collect::<Vec<_>>();
-        // assert_eq!(
-        //     items,
-        //     vec![MockMessage {
-        //         payload: "This is foo".to_string(),
-        //         content_topic: MOCK_TX_CONTENT_TOPIC,
-        //         version: 0,
-        //         timestamp: 0,
-        //     }]
-        // )
+        assert_eq!(2, items.len());
+        assert_eq!(items, expected)
     });
 
     // wait the app thread finish

@@ -76,7 +76,7 @@ impl NetworkAdapter for MockAdapter {
                 match event {
                     Ok(NetworkEvent::RawMessage(message)) => {
                         tracing::info!("Received message: {:?}", message.payload());
-                        if message.content_topic() != MOCK_TX_CONTENT_TOPIC {
+                        if message.content_topic() == MOCK_TX_CONTENT_TOPIC {
                             Some(MockTransactionMsg::Request(MockTransaction::from(&message)))
                         } else {
                             None

@@ -139,6 +139,7 @@ where
                 Some(msg) = service_state.inbound_relay.recv() => {
                     match msg {
                         MempoolMsg::AddTx { tx, reply_channel } => {
+                            eprintln!("here");
                             match pool.add_tx(tx.clone()) {
                                 Ok(_id) => {
                                     if let Err(e) = reply_channel.send(Ok(())) {
@@ -151,7 +152,6 @@ where
                             }
                         }
                         MempoolMsg::View { ancestor_hint, reply_channel } => {
-                            tracing::info!("view ancestor_hint: {ancestor_hint:#?}");
                             reply_channel.send(pool.view(ancestor_hint)).unwrap_or_else(|_| {
                                 tracing::debug!("could not send back pool view")
                             });

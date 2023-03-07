@@ -79,9 +79,6 @@ where
     }
 
     fn block_transactions(&self, block: BlockId) -> Box<dyn Iterator<Item = Self::Tx> + Send> {
-        for tx in &self.pending_txs {
-            eprintln!("pending {:?}", tx);
-        }
         let empty = Vec::new();
         match self.in_block_txs.get(&block) {
             Some(txs) => Box::new(txs.clone().into_iter()),

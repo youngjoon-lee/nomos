@@ -10,7 +10,7 @@ pub enum Tx {
     Transfer(Transaction),
 }
 
-pub trait TxCodex {
+pub trait TxCodex: core::fmt::Debug {
     type Error: std::error::Error + Send + Sync + 'static;
 
     fn encode(&self) -> bytes::Bytes;
