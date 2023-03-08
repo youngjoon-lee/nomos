@@ -139,7 +139,6 @@ where
                 Some(msg) = service_state.inbound_relay.recv() => {
                     match msg {
                         MempoolMsg::AddTx { tx, reply_channel } => {
-                            eprintln!("here");
                             match pool.add_tx(tx.clone()) {
                                 Ok(_id) => {
                                     if let Err(e) = reply_channel.send(Ok(())) {

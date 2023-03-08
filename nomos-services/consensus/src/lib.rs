@@ -150,7 +150,7 @@ where
 
         let fountain = F::new(fountain_settings);
 
-        let leadership = Leadership::new(private_key, mempool_relay);
+        let leadership = Leadership::new(private_key, mempool_relay.clone());
         // FIXME: this should be taken from config
         let mut cur_view = View {
             seed: [0; 32],
@@ -161,10 +161,7 @@ where
             // if we want to process multiple views at the same time this can
             // be spawned as a separate future
 
-            // FIXME: this should probably have a timer to detect failed rounds
-            // let res = cur_view
-            //     .resolve::<A, O, _, _>(private_key, &tip, &network_adapter, &fountain, &leadership)
-            //     .await;
+            // FIXME: this should probably have a timer to detect failed rounds 
             match cur_view
                 .resolve::<A, O, _, _>(private_key, &tip, &network_adapter, &fountain, &leadership)
                 .await
@@ -173,8 +170,7 @@ where
                     // resolved block, mark as verified and possibly update the tip
                     // not sure what mark as verified means, e.g. if we want an event subscription
                     // system for this to be used for example by the ledger, storage and mempool
-                    leadership
-                        .mempool
+                    mempool_relay
                         .send(nomos_mempool::MempoolMsg::MarkInBlock {
                             ids: block.transactions().iter().map(P::Id::from).collect(),
                             block: block.header(),

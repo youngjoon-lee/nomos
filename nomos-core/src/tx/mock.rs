@@ -90,20 +90,6 @@ pub enum MockTransactionMsg {
     Response(MockTransaction),
 }
 
-// impl<'a> From<&'a [u8]> for Vec<MockTransactionMsg> {
-//     fn from(bytes: bytes::Bytes) -> Self {
-//         let mut buf = bytes::BytesMut::from(bytes);
-//         let mut msgs = Vec::new();
-//         while buf.has_remaining() {
-//             let msg = MockTransactionMsg::from_slice(&buf);
-//             let len = msg.encoded_len();
-//             buf.advance(len);
-//             msgs.push(msg);
-//         }
-//         msgs
-//     }
-// }
-
 #[derive(Debug, Eq, Hash, PartialEq, Ord, Copy, Clone, PartialOrd, serde::Serialize)]
 pub struct MockTxId([u8; 32]);
 

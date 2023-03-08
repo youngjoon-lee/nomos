@@ -133,16 +133,20 @@ fn test_carnot() {
                                 }
                             })
                             .collect::<Vec<_>>();
-                        if items.len() != 2 {
+
+                        // we only send two transaction messages, so we expect two transactions in the in_block_txs
+                        if items.len() != expected.len() {
                             continue;
                         }
                         assert_eq!(items, expected);
-                        tspin.store(false, std::sync::atomic::Ordering::Relaxed);
+                        tspin.store(false, std::sync::atomic::Ordering::SeqCst);
+                        break;
                     }
+                    else => {}
                 }
             }
         });
     });
 
-    while spin.load(std::sync::atomic::Ordering::Relaxed) {}
+    while spin.load(std::sync::atomic::Ordering::SeqCst) {}
 }

@@ -87,7 +87,6 @@ where
         fountain: &Fountain,
     ) {
         assert_eq!(view.view_n, self.view_n, "view_n mismatch");
-        eprintln!("block {:?}", block);
         let block_bytes = block.as_bytes();
         let encoded_stream = fountain.encode(&block_bytes);
         encoded_stream
