@@ -102,35 +102,47 @@ fn test_carnot() {
         .handle()
         .relay::<MempoolService<MockAdapter, MockPool<MockTxId, MockTransactionMsg>>>();
 
+    let spin = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let tspin = spin.clone();
     app.spawn(async move {
         let mempool_outbound = mempool.connect().await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        tokio::spawn(async move {
+            let sleep = tokio::time::sleep(tokio::time::Duration::from_millis(100));
+            tokio::pin!(sleep);
+            loop {
+                tokio::select! {
+                    _ = &mut sleep => {
+                        // send block transactions message to mempool, and check if the previous transaction has been in the in_block_txs
+                        let (mtx, mrx) = tokio::sync::oneshot::channel();
+                        mempool_outbound
+                            .send(MempoolMsg::BlockTransactions {
+                                block: BlockHeader.id(),
+                                reply_channel: mtx,
+                            })
+                            .await
+                            .unwrap();
 
-        // send block transactions message to mempool, and check if the previous transaction has been in the in_block_txs
-        let (mtx, mrx) = tokio::sync::oneshot::channel();
-        mempool_outbound
-            .send(MempoolMsg::BlockTransactions {
-                block: BlockHeader.id(),
-                reply_channel: mtx,
-            })
-            .await
-            .unwrap();
-
-        let items = mrx
-            .await
-            .unwrap()
-            .filter_map(|tx| {
-                if let MockTransactionMsg::Request(msg) = tx {
-                    Some(msg)
-                } else {
-                    None
+                        let items = mrx
+                            .await
+                            .unwrap()
+                            .filter_map(|tx| {
+                                if let MockTransactionMsg::Request(msg) = tx {
+                                    Some(msg)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        if items.len() != 2 {
+                            continue;
+                        }
+                        assert_eq!(items, expected);
+                        tspin.store(false, std::sync::atomic::Ordering::Relaxed);
+                    }
                 }
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(2, items.len());
-        assert_eq!(items, expected)
+            }
+        });
     });
 
-    // wait the app thread finish
-    std::thread::sleep(std::time::Duration::from_secs(5));
+    while spin.load(std::sync::atomic::Ordering::Relaxed) {}
 }
