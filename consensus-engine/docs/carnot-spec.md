@@ -68,6 +68,10 @@ qc is the optional field containing the QC built by root nodes from 2/3 + 1 vote
 view: View
 high_qc: Qc
 ```
+### viewSynchMsg
+
+view: View
+newViewQC: Qc
 
 ## Local Variables
 Participants in the protocol are expected to mainting the following data in addition to the DAG of received proposal:
@@ -365,7 +369,7 @@ Func receive(newViewQC){
                      send(newViewQC,leader(view+1))
           }
           if leader(){
-                 let viewSynchMsg=create_viewSynchMsg(newViewQC)
+                 let viewSynchMsg = create_viewSynchMsg(newViewQC)
                  broadcast(viewSynchMsg)
           }
         
