@@ -355,7 +355,7 @@ Func timeout(){
                 }
 }
 ``` 
-### Forwarding_newViewQC
+### Forwarding newViewQC
 ```Ruby
 Func receive(newViewQC){
          if (member_of_internal_com() AND not member_of_root()) OR member_of_leaf {
