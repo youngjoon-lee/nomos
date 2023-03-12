@@ -341,6 +341,11 @@ Func receive(newView) {
 ### Timeout
 ```Ruby
 Func timeout(){
-    unimplemented
+        cur_view++
+                reset()
+                if member_of_internal_com() AND not member_of_root() OR member_of_leaf {
+                        send(newView, parent_committee())
+                 
+                }
 }
 ```     
