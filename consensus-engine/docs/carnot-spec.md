@@ -342,10 +342,16 @@ Func receive(newView) {
 ```Ruby
 Func timeout(){
         cur_view++
-                reset()
+        reset()
                 if member_of_internal_com() AND not member_of_root() OR member_of_leaf {
+                        let newView = creat_newView()
                         send(newView, parent_committee())
                  
+                }
+                if member_of_root() {
+                        let newView = creat_newView()
+                        send(newView,root_committee()) # Need to be discussed. It can only be sent to the next leader but since the RB needs agreement to generate the seed for the leader+overlay, therefore newView is sent to the root_committee().
+
                 }
 }
 ```     
