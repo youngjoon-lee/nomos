@@ -343,8 +343,8 @@ Func receive(newView) {
 Func timeout(){
         cur_view++
         reset()
-                if member_of_internal_com() AND not member_of_root() OR member_of_leaf {
-                        let newView = creat_newView()
+                if (member_of_internal_com() AND not member_of_root()) OR member_of_leaf {
+                        let newView = create_newView()
                         send(newView, parent_committee())
                  
                 }
@@ -354,4 +354,19 @@ Func timeout(){
 
                 }
 }
-```     
+``` 
+### Forwarding newViewQC
+
+Func receive(newViewQC){
+         if (member_of_internal_com() AND not member_of_root()) OR member_of_leaf {
+                send(newViewQC,parent_committee())
+         }
+          if member_of_root() {
+                     send(newViewQC,leader(view+1))
+          }
+          if leader(){
+                 let viewSynchMsg=create_viewSynchMsg(newViewQC)
+                 broadcast(viewSynchMsg)
+          }
+        
+}
