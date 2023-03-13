@@ -2,7 +2,8 @@
 use std::marker::PhantomData;
 // crates
 // internal
-use nomos_core::{block::BlockHeader, crypto::PrivateKey, tx::TxCodex};
+use nomos_core::block::TxHash;
+use nomos_core::{block::BlockHeader, crypto::PrivateKey};
 use nomos_mempool::MempoolMsg;
 
 use super::*;
@@ -17,9 +18,9 @@ pub struct Leadership<Tx, Id> {
     mempool: OutboundRelay<MempoolMsg<Tx, Id>>,
 }
 
-pub enum LeadershipResult<'view, Tx: TxCodex> {
+pub enum LeadershipResult<'view> {
     Leader {
-        block: Block<Tx>,
+        block: Block,
         _view: PhantomData<&'view u8>,
     },
     NotLeader {
@@ -27,7 +28,10 @@ pub enum LeadershipResult<'view, Tx: TxCodex> {
     },
 }
 
-impl<Tx: TxCodex, Id> Leadership<Tx, Id> {
+impl<Tx, Id> Leadership<Tx, Id>
+where
+    for<'t> &'t Tx: Into<TxHash>, // TODO: we should probably abstract this away but for now the constrain may do
+{
     pub fn new(key: PrivateKey, mempool: OutboundRelay<MempoolMsg<Tx, Id>>) -> Self {
         Self {
             key: Enclave { key },
@@ -41,35 +45,21 @@ impl<Tx: TxCodex, Id> Leadership<Tx, Id> {
         view: &'view View,
         tip: &Tip,
         qc: Approval,
-    ) -> LeadershipResult<'view, Tx> {
+    ) -> LeadershipResult<'view> {
+        // TODO: get the correct ancestor for the tip
         // let ancestor_hint = todo!("get the ancestor from the tip");
-        // TODO: use the correct ancestor hint
-        let fake_ancestor_hint = [0u8; 32];
+        let ancestor_hint = [0; 32];
         if view.is_leader(self.key.key) {
             let (tx, rx) = tokio::sync::oneshot::channel();
-            if let Err((e, _msg)) = self
-                .mempool
-                .send(MempoolMsg::View {
-                    ancestor_hint: fake_ancestor_hint,
-                    reply_channel: tx,
-                })
-                .await
-            {
-                tracing::error!(err=%e);
-                panic!("{e}");
-            }
-
-            let iter = match rx.await {
-                Ok(iter) => iter,
-                Err(e) => {
-                    tracing::error!("{}", e);
-                    panic!("{e}");
-                }
-            };
+            self.mempool.send(MempoolMsg::View {
+                ancestor_hint,
+                reply_channel: tx,
+            });
+            let iter = rx.await.unwrap();
 
             LeadershipResult::Leader {
                 _view: PhantomData,
-                block: Block::<Tx>::new(BlockHeader, iter),
+                block: Block::new(BlockHeader::default(), iter.map(|ref tx| tx.into())),
             }
         } else {
             LeadershipResult::NotLeader { _view: PhantomData }

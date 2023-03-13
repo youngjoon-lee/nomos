@@ -1,26 +1,30 @@
+use std::collections::HashSet;
 // std
 // crates
-use bytes::{Buf, Bytes};
-
-use crate::tx::TxCodex;
+use bytes::Bytes;
+use serde::{Deserialize, Serialize};
 // internal
 
+pub type TxHash = [u8; 32];
+
 /// A block
-#[derive(Clone, Debug)]
-pub struct Block<Tx: TxCodex> {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Block {
     header: BlockHeader,
-    transactions: Vec<Tx>,
+    transactions: HashSet<TxHash>,
 }
 
 /// A block header
-#[derive(Copy, Clone, Debug)]
-pub struct BlockHeader;
+#[derive(Copy, Clone, Default, Debug, Serialize, Deserialize)]
+pub struct BlockHeader {
+    id: BlockId,
+}
 
 /// Identifier of a block
 pub type BlockId = [u8; 32];
 
-impl<Tx: TxCodex> Block<Tx> {
-    pub fn new(header: BlockHeader, txs: impl Iterator<Item = Tx>) -> Self {
+impl Block {
+    pub fn new(header: BlockHeader, txs: impl Iterator<Item = TxHash>) -> Self {
         Self {
             header,
             transactions: txs.collect(),
@@ -36,29 +40,13 @@ impl<Tx: TxCodex> Block<Tx> {
         self.header
     }
 
-    pub fn transactions(&self) -> &[Tx] {
-        &self.transactions
-    }
-
-    pub fn from_bytes(b: &[u8]) -> Self {
-        let mut buf = bytes::BytesMut::from(b);
-        let mut txns = Vec::new();
-        while buf.has_remaining() {
-            let tx = Tx::decode(&buf).unwrap();
-            let len = tx.encoded_len();
-            buf.advance(len);
-            txns.push(tx);
-        }
-
-        Self {
-            header: BlockHeader,
-            transactions: txns,
-        }
+    pub fn transactions(&self) -> impl Iterator<Item = &TxHash> + '_ {
+        self.transactions.iter()
     }
 }
 
 impl BlockHeader {
     pub fn id(&self) -> BlockId {
-        BlockId::default()
+        self.id
     }
 }

@@ -8,6 +8,7 @@ use super::*;
 use crate::network::messages::{ApprovalMsg, ProposalChunkMsg};
 use crate::network::NetworkAdapter;
 use crate::overlay::committees::Committee;
+use nomos_core::wire::deserializer;
 
 const DEFAULT_THRESHOLD: Threshold = Threshold::new(2, 3);
 const FLAT_COMMITTEE: Committee = Committee::root();
@@ -29,37 +30,32 @@ impl Threshold {
 /// As far as the API is concerned, this should be equivalent to any other
 /// overlay and far simpler to implement.
 /// For this reason, this might act as a 'reference' overlay for testing.
-pub struct Flat<Tx> {
+pub struct Flat {
     // TODO: this should be a const param, but we can't do that yet
     threshold: Threshold,
     node_id: NodeId,
     view_n: u64,
-    _tx: std::marker::PhantomData<Tx>,
 }
 
-impl<Tx: TxCodex> Flat<Tx> {
+impl Flat {
     pub fn new(view_n: u64, node_id: NodeId) -> Self {
         Self {
             threshold: DEFAULT_THRESHOLD,
             node_id,
             view_n,
-            _tx: std::marker::PhantomData,
         }
     }
 
-    fn approve(&self, _block: &Block<Tx>) -> Approval {
+    fn approve(&self, _block: &Block) -> Approval {
         // we still need to define how votes look like
         Approval
     }
 }
 
 #[async_trait::async_trait]
-impl<Network: NetworkAdapter + Sync, Fountain: FountainCode + Sync, Tx> Overlay<Network, Fountain>
-    for Flat<Tx>
-where
-    Tx: TxCodex + Clone + Send + Sync + 'static,
+impl<Network: NetworkAdapter + Sync, Fountain: FountainCode + Sync> Overlay<Network, Fountain>
+    for Flat
 {
-    type Tx = Tx;
 
     fn new(view: &View, node: NodeId) -> Self {
         Flat::new(view.view_n, node)
@@ -70,19 +66,20 @@ where
         view: &View,
         adapter: &Network,
         fountain: &Fountain,
-    ) -> Result<Block<Tx>, FountainError> {
+    ) -> Result<Block, FountainError> {
         assert_eq!(view.view_n, self.view_n, "view_n mismatch");
         let message_stream = adapter.proposal_chunks_stream(FLAT_COMMITTEE, view).await;
-        fountain
-            .decode(message_stream)
-            .await
-            .map(|b| Block::<Tx>::from_bytes(&b))
+        fountain.decode(message_stream).await.and_then(|b| {
+            deserializer(&b)
+                .deserialize::<Block>()
+                .map_err(|e| FountainError::from(e.to_string().as_str()))
+        })
     }
 
     async fn broadcast_block(
         &self,
         view: &View,
-        block: Block<Tx>,
+        block: Block,
         adapter: &Network,
         fountain: &Fountain,
     ) {
@@ -102,7 +99,7 @@ where
     async fn approve_and_forward(
         &self,
         view: &View,
-        block: &Block<Tx>,
+        block: &Block,
         adapter: &Network,
         _next_view: &View,
     ) -> Result<(), Box<dyn Error>> {

@@ -25,7 +25,7 @@ pub struct MockAdapter {
 #[async_trait::async_trait]
 impl NetworkAdapter for MockAdapter {
     type Backend = Mock;
-    type Tx = MockTransactionMsg;
+    type Tx = MockTransaction;
 
     async fn new(
         network_relay: OutboundRelay<<NetworkService<Self::Backend> as ServiceData>::Message>,
@@ -76,8 +76,8 @@ impl NetworkAdapter for MockAdapter {
                 match event {
                     Ok(NetworkEvent::RawMessage(message)) => {
                         tracing::info!("Received message: {:?}", message.payload());
-                        if message.content_topic() == MOCK_TX_CONTENT_TOPIC {
-                            Some(MockTransactionMsg::Request(MockTransaction::from(&message)))
+                        if message.content_topic().eq(&MOCK_TX_CONTENT_TOPIC) {
+                            Some(MockTransaction::new(message))
                         } else {
                             None
                         }

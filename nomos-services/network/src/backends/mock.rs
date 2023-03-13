@@ -12,6 +12,7 @@ use rand::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
@@ -23,11 +24,11 @@ const BROADCAST_CHANNEL_BUF: usize = 16;
 
 pub type MockMessageVersion = usize;
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct MockContentTopic {
-    pub application_name: &'static str,
+    pub application_name: Cow<'static, str>,
     pub version: usize,
-    pub content_topic_name: &'static str,
+    pub content_topic_name: Cow<'static, str>,
 }
 
 impl MockContentTopic {
@@ -37,9 +38,9 @@ impl MockContentTopic {
         content_topic_name: &'static str,
     ) -> Self {
         Self {
-            application_name,
+            application_name: Cow::Borrowed(application_name),
             version,
-            content_topic_name,
+            content_topic_name: Cow::Borrowed(content_topic_name),
         }
     }
 
@@ -58,16 +59,18 @@ impl MockContentTopic {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MockPubSubTopic {
-    pub topic_name: String,
+    pub topic_name: Cow<'static, str>,
 }
 
 impl MockPubSubTopic {
-    pub const fn new(topic_name: String) -> Self {
-        Self { topic_name }
+    pub const fn new(topic_name: &'static str) -> Self {
+        Self {
+            topic_name: Cow::Borrowed(topic_name),
+        }
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Serialize, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct MockMessage {
     pub payload: String,
@@ -95,8 +98,8 @@ impl MockMessage {
         }
     }
 
-    pub const fn content_topic(&self) -> MockContentTopic {
-        self.content_topic
+    pub const fn content_topic(&self) -> &MockContentTopic {
+        &self.content_topic
     }
 
     pub fn payload(&self) -> String {
@@ -334,9 +337,9 @@ mod tests {
                 MockMessage {
                     payload: "foo".to_string(),
                     content_topic: MockContentTopic {
-                        application_name: "mock network",
+                        application_name: "mock network".into(),
                         version: 0,
-                        content_topic_name: "foo",
+                        content_topic_name: "foo".into(),
                     },
                     version: 0,
                     timestamp: 0,
@@ -344,9 +347,9 @@ mod tests {
                 MockMessage {
                     payload: "bar".to_string(),
                     content_topic: MockContentTopic {
-                        application_name: "mock network",
+                        application_name: "mock network".into(),
                         version: 0,
-                        content_topic_name: "bar",
+                        content_topic_name: "bar".into(),
                     },
                     version: 0,
                     timestamp: 0,
@@ -375,9 +378,9 @@ mod tests {
                 msg: MockMessage {
                     payload: val.to_string(),
                     content_topic: MockContentTopic {
-                        application_name: "mock",
+                        application_name: "mock".into(),
                         version: 1,
-                        content_topic_name: "foo content",
+                        content_topic_name: "foo content".into(),
                     },
                     version: 1,
                     timestamp: chrono::Utc::now().timestamp() as usize,
@@ -392,9 +395,9 @@ mod tests {
                 msg: MockMessage {
                     payload: val.to_string(),
                     content_topic: MockContentTopic {
-                        application_name: "mock",
+                        application_name: "mock".into(),
                         version: 1,
-                        content_topic_name: "bar content",
+                        content_topic_name: "bar content".into(),
                     },
                     version: 1,
                     timestamp: chrono::Utc::now().timestamp() as usize,

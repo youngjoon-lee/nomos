@@ -18,8 +18,9 @@ nomos-core = { path = "../../nomos-core" }
 tokio = { version = "1", features = ["sync"] }
 tokio-stream = "0.1"
 futures = "0.3"
-waku-bindings = { version = "0.1.0-rc.1", optional = true}
+waku-bindings = { version = "0.1.0-rc.2", optional = true}
 tracing = "0.1"
+serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 overwatch-derive = { git = "https://github.com/logos-co/Overwatch", branch = "main" }

@@ -1,76 +1,24 @@
-use super::TxCodex;
+use crate::wire::serialize;
 use blake2::{
     digest::{Update, VariableOutput},
     Blake2bVar,
 };
-use bytes::{Buf, BufMut};
+use nomos_network::backends::mock::MockMessage;
 
-const TX_ID_LEN: usize = core::mem::size_of::<MockTxId>();
-
-#[derive(Debug, Clone, Eq, PartialEq, Hash, serde::Serialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct MockTransaction {
     id: MockTxId,
-    content: bytes::Bytes,
-}
-
-impl TxCodex for MockTransactionMsg {
-    type Error = std::convert::Infallible;
-
-    fn encode(&self) -> bytes::Bytes {
-        let mut buf = bytes::BytesMut::new();
-        // Encoding: | type 1 bit | 8 bits content len | 32 bits id | content |
-        match self {
-            MockTransactionMsg::Request(msg) => {
-                buf.put_u8(0);
-                buf.put_slice(msg.to_bytes().as_ref());
-            }
-            MockTransactionMsg::Response(msg) => {
-                buf.put_u8(1);
-                buf.put_slice(msg.to_bytes().as_ref());
-            }
-        }
-        buf.freeze()
-    }
-
-    fn encoded_len(&self) -> usize {
-        1 + 8
-            + TX_ID_LEN
-            + match self {
-                MockTransactionMsg::Request(msg) | MockTransactionMsg::Response(msg) => {
-                    msg.content.len()
-                }
-            }
-    }
-
-    fn decode(src: &[u8]) -> Result<Self, Self::Error> {
-        Ok(match src[0] {
-            0 => Self::Request(MockTransaction::from_slice(&src[1..])),
-            1 => Self::Response(MockTransaction::from_slice(&src[1..])),
-            _ => panic!("Invalid transaction message type"),
-        })
-    }
+    content: MockMessage,
 }
 
 impl MockTransaction {
-    pub fn to_bytes(&self) -> bytes::Bytes {
-        let mut buf = bytes::BytesMut::new();
-        // Encoding: | 8 bits content len| 32 bits id | content |
-        buf.put_u64(self.content.len() as u64);
-        buf.put_slice(self.id.as_ref());
-        buf.put_slice(self.content.as_ref());
-        buf.freeze()
+    pub fn new(content: MockMessage) -> Self {
+        let id = MockTxId::from(&content);
+        Self { id, content }
     }
 
-    pub fn from_slice(s: &[u8]) -> Self {
-        let mut buf = bytes::BytesMut::from(s);
-        let len = buf.get_u64();
-        let mut id = [0u8; 32];
-        id.copy_from_slice(&s[8..40]);
-        let id = MockTxId(id);
-        Self {
-            id,
-            content: bytes::Bytes::copy_from_slice(&s[40..40 + len as usize]),
-        }
+    pub fn message(&self) -> &MockMessage {
+        &self.content
     }
 }
 
@@ -79,18 +27,14 @@ impl From<&nomos_network::backends::mock::MockMessage> for MockTransaction {
         let id = MockTxId::from(msg);
         Self {
             id,
-            content: msg.to_bytes(),
+            content: msg.clone(),
         }
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash, serde::Serialize)]
-pub enum MockTransactionMsg {
-    Request(MockTransaction),
-    Response(MockTransaction),
-}
-
-#[derive(Debug, Eq, Hash, PartialEq, Ord, Copy, Clone, PartialOrd, serde::Serialize)]
+#[derive(
+    Debug, Eq, Hash, PartialEq, Ord, Copy, Clone, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub struct MockTxId([u8; 32]);
 
 impl From<[u8; 32]> for MockTxId {
@@ -122,17 +66,15 @@ impl MockTxId {
 impl From<&nomos_network::backends::mock::MockMessage> for MockTxId {
     fn from(msg: &nomos_network::backends::mock::MockMessage) -> Self {
         let mut hasher = Blake2bVar::new(32).unwrap();
-        hasher.update(msg.to_bytes().as_ref());
+        hasher.update(&serialize(msg).unwrap());
         let mut id = [0u8; 32];
         hasher.finalize_variable(&mut id).unwrap();
         Self(id)
     }
 }
 
-impl From<&MockTransactionMsg> for MockTxId {
-    fn from(msg: &MockTransactionMsg) -> Self {
-        match msg {
-            MockTransactionMsg::Request(tx) | MockTransactionMsg::Response(tx) => tx.id,
-        }
+impl From<&MockTransaction> for MockTxId {
+    fn from(msg: &MockTransaction) -> Self {
+        msg.id
     }
 }

@@ -20,7 +20,7 @@ use nomos_mempool::{
 struct MockPoolNode {
     logging: ServiceHandle<Logger>,
     network: ServiceHandle<NetworkService<Mock>>,
-    mockpool: ServiceHandle<MempoolService<MockAdapter, MockPool<MockTxId, MockTransactionMsg>>>,
+    mockpool: ServiceHandle<MempoolService<MockAdapter, MockPool<MockTxId, MockTransaction>>>,
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn test_mockmempool() {
     let network = app.handle().relay::<NetworkService<Mock>>();
     let mempool = app
         .handle()
-        .relay::<MempoolService<MockAdapter, MockPool<MockTxId, MockTransactionMsg>>>();
+        .relay::<MempoolService<MockAdapter, MockPool<MockTxId, MockTransaction>>>();
 
     app.spawn(async move {
         let network_outbound = network.connect().await.unwrap();
@@ -99,14 +99,9 @@ fn test_mockmempool() {
             let items = mrx
                 .await
                 .unwrap()
-                .filter_map(|tx| {
-                    if let MockTransactionMsg::Request(msg) = tx {
-                        Some(msg)
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>();
+                .map(|msg| msg.message().clone())
+                .collect::<std::collections::HashSet<_>>();
+
             if items.len() == exp_txns.len() {
                 assert_eq!(exp_txns, items);
                 exist.store(true, std::sync::atomic::Ordering::SeqCst);

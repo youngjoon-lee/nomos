@@ -34,6 +34,7 @@ where
 
 pub struct MempoolMetrics {
     pub pending_txs: usize,
+    pub last_tx_timestamp: u64,
 }
 
 pub enum MempoolMsg<Tx, Id> {
@@ -48,13 +49,13 @@ pub enum MempoolMsg<Tx, Id> {
     Prune {
         ids: Vec<Id>,
     },
+    BlockTransaction {
+        block: BlockId,
+        reply_channel: Sender<Option<Box<dyn Iterator<Item = Tx> + Send>>>,
+    },
     MarkInBlock {
         ids: Vec<Id>,
         block: BlockHeader,
-    },
-    BlockTransactions {
-        block: BlockId,
-        reply_channel: Sender<Box<dyn Iterator<Item = Tx> + Send>>,
     },
     Metrics {
         reply_channel: Sender<MempoolMetrics>,
@@ -75,8 +76,8 @@ impl<Tx: Debug, Id: Debug> Debug for MempoolMsg<Tx, Id> {
                     "MempoolMsg::MarkInBlock{{ids: {ids:?}, block: {block:?}}}"
                 )
             }
-            Self::BlockTransactions { block, .. } => {
-                write!(f, "MempoolMsg::BlockTransactions{{block: {block:?}}}")
+            Self::BlockTransaction { block, .. } => {
+                write!(f, "MempoolMsg::BlockTransaction{{block: {block:?}}}")
             }
             Self::Metrics { .. } => write!(f, "MempoolMsg::Metrics"),
         }
@@ -158,7 +159,7 @@ where
                         MempoolMsg::MarkInBlock { ids, block } => {
                             pool.mark_in_block(&ids, block);
                         }
-                        MempoolMsg::BlockTransactions { block, reply_channel } => {
+                        MempoolMsg::BlockTransaction { block, reply_channel } => {
                             reply_channel.send(pool.block_transactions(block)).unwrap_or_else(|_| {
                                 tracing::debug!("could not send back block transactions")
                             });
@@ -167,6 +168,7 @@ where
                         MempoolMsg::Metrics { reply_channel } => {
                             let metrics = MempoolMetrics {
                                 pending_txs: pool.pending_tx_count(),
+                                last_tx_timestamp: pool.last_tx_timestamp(),
                             };
                             reply_channel.send(metrics).unwrap_or_else(|_| {
                                 tracing::debug!("could not send back mempool metrics")
