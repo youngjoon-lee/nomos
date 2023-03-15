@@ -10,7 +10,7 @@ use futures::{Stream, StreamExt};
 use crate::block::BlockId;
 use crate::crypto::PublicKey;
 use crate::vote::Tally;
-use consensus_engine::View;
+use consensus_engine::{AggregatedQc, Qc, StandardQc, View};
 
 pub type NodeId = PublicKey;
 
@@ -32,6 +32,27 @@ pub enum QuorumCertificate {
         aggregated_qc: AggregatedQuorumCertificate,
         _some_crypto_stuff: PhantomData<()>,
     },
+}
+
+impl From<QuorumCertificate> for consensus_engine::Qc {
+    fn from(value: QuorumCertificate) -> Self {
+        match value {
+            QuorumCertificate::Simple { qc, .. } => Qc::Standard(StandardQc {
+                view: qc.view,
+                id: qc.block,
+            }),
+            QuorumCertificate::Aggregated { aggregated_qc, .. } => {
+                let high_qc = aggregated_qc.high_qc();
+                Qc::Aggregated(AggregatedQc {
+                    view: View::MAX,
+                    high_qc: StandardQc {
+                        view: high_qc.view,
+                        id: high_qc.block,
+                    },
+                })
+            }
+        }
+    }
 }
 
 pub struct SimpleQuorumCertificate {

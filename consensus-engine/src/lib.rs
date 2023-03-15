@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 mod io;
-use crate::io::{AggregatedQc, StandardQc};
-pub use io::{Input, Output, Qc};
+pub use io::{AggregatedQc, Input, Output, Qc, StandardQc};
 
 pub type View = u64;
 pub type Id = [u8; 32];
