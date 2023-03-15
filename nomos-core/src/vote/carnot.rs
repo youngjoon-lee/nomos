@@ -3,37 +3,54 @@
 // std
 
 use std::collections::HashSet;
+use std::marker::PhantomData;
 // crates
 use futures::{Stream, StreamExt};
 // internal
 use crate::block::BlockId;
 use crate::crypto::PublicKey;
 use crate::vote::Tally;
+use consensus_engine::View;
 
 pub type NodeId = PublicKey;
 
-pub enum QuorumCertificate {
-    Simple(SimpleQuorumCertificate),
-    Aggregated(AggregatedQuorumCertificate),
-}
-
 impl QuorumCertificate {
-    pub fn view(&self) -> u64 {
+    pub fn view(&self) -> View {
         match self {
-            QuorumCertificate::Simple(qc) => qc.view,
-            QuorumCertificate::Aggregated(qc) => qc.view,
+            QuorumCertificate::Simple { qc, .. } => qc.view,
+            QuorumCertificate::Aggregated { aggregated_qc, .. } => aggregated_qc.high_qc().view,
         }
     }
 }
 
+pub enum QuorumCertificate {
+    Simple {
+        qc: SimpleQuorumCertificate,
+        _some_crypto_stuff: PhantomData<()>,
+    },
+    Aggregated {
+        aggregated_qc: AggregatedQuorumCertificate,
+        _some_crypto_stuff: PhantomData<()>,
+    },
+}
+
 pub struct SimpleQuorumCertificate {
-    view: u64,
+    view: View,
     block: BlockId,
 }
 
 pub struct AggregatedQuorumCertificate {
-    view: u64,
-    high_qh: Box<QuorumCertificate>,
+    view: View,
+    aggregated_qcs: Box<[SimpleQuorumCertificate]>,
+}
+
+impl AggregatedQuorumCertificate {
+    pub fn high_qc(&self) -> &SimpleQuorumCertificate {
+        self.aggregated_qcs
+            .iter()
+            .max_by_key(|cert| cert.view)
+            .expect("Aggregated certificates shouldn't come empty")
+    }
 }
 
 pub struct Vote {
@@ -44,7 +61,7 @@ pub struct Vote {
 }
 
 impl Vote {
-    pub fn valid_view(&self, view: u64) -> bool {
+    pub fn valid_view(&self, view: View) -> bool {
         self.view == view && self.qc.as_ref().map_or(true, |qc| qc.view() == view - 1)
     }
 }
@@ -106,10 +123,13 @@ impl Tally for CarnotTally {
             seen.insert(vote.voter);
             approved += 1;
             if approved >= self.settings.threshold {
-                return Ok(QuorumCertificate::Simple(SimpleQuorumCertificate {
-                    view,
-                    block: vote.block,
-                }));
+                return Ok(QuorumCertificate::Simple {
+                    qc: SimpleQuorumCertificate {
+                        view,
+                        block: vote.block,
+                    },
+                    _some_crypto_stuff: Default::default(),
+                });
             }
         }
         Err(CarnotTallyError::InsufficientVotes)

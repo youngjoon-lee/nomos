@@ -1,16 +1,17 @@
 use std::collections::HashMap;
 
 mod io;
-use io::{Input, Output, Qc};
+use crate::io::{AggregatedQc, StandardQc};
+pub use io::{Input, Output, Qc};
 
 pub type View = u64;
 pub type Id = [u8; 32];
 
 #[derive(Clone, Debug)]
 pub struct CarnotState {
-    view: u64,
-    high_qc: u64,
-    last_committed_view: u64,
+    view: View,
+    high_qc_view: View,
+    last_committed_view: View,
     // proposal id -> (view, parent_qc)
     proposals: HashMap<Id, (View, Qc)>,
 }
@@ -24,7 +25,7 @@ impl ConsensusEngine {
         Self {
             state: CarnotState {
                 view: 0,
-                high_qc: 0,
+                high_qc_view: 0,
                 last_committed_view: 0,
                 proposals: [(id, (0, qc))].into(),
             },
@@ -105,9 +106,9 @@ impl CarnotState {
 
         // This in theory could be an invariant of the block/proposal type, but let's put
         // it here for now
-        if let Qc::Standard {
+        if let Qc::Standard(StandardQc {
             view: parent_view, ..
-        } = parent_qc
+        }) = parent_qc
         {
             return view == parent_view + 1;
         }
@@ -117,22 +118,22 @@ impl CarnotState {
 
     fn update_high_qc(&mut self, qc: Qc) {
         match qc {
-            Qc::Standard { view, id: _ } if view > self.high_qc => {
-                self.high_qc = view;
+            Qc::Standard(StandardQc { view, id: _ }) if view > self.high_qc_view => {
+                self.high_qc_view = view;
             }
-            Qc::Aggregated { high_qc_view, .. } if high_qc_view != self.high_qc => {
-                self.high_qc = high_qc_view;
+            Qc::Aggregated(AggregatedQc { high_qc, .. }) if high_qc.view != self.high_qc_view => {
+                self.high_qc_view = high_qc.view;
             }
             _ => {}
         }
     }
 
     fn try_commit(&mut self, _view: View, qc: Qc) -> Option<Output> {
-        let Qc::Standard{view: _, id: parent} = qc else{
+        let Qc::Standard(StandardQc{view: _, id: parent}) = qc else{
             return None;
         };
 
-        let Some(&(parent_view,  Qc::Standard{view: grandparent_view, id: grandparent})) = self.proposals.get(&parent)
+        let Some(&(parent_view,  Qc::Standard(StandardQc{view: grandparent_view, id: grandparent}))) = self.proposals.get(&parent)
           else {
             return None;
         };
@@ -157,18 +158,18 @@ mod test {
     fn proposal_is_safe() {
         let mut engine = ConsensusEngine::from_genesis(
             [0; 32],
-            Qc::Standard {
+            Qc::Standard(StandardQc {
                 view: 0,
                 id: [0; 32],
-            },
+            }),
         );
         let proposal = Input::Proposal {
             view: 1,
             id: [1; 32],
-            parent_qc: Qc::Standard {
+            parent_qc: Qc::Standard(StandardQc {
                 view: 0,
                 id: [0; 32],
-            },
+            }),
         };
         let out = engine.step(proposal);
         assert_eq!(
@@ -184,26 +185,26 @@ mod test {
     fn proposal_is_committed() {
         let mut engine = ConsensusEngine::from_genesis(
             [0; 32],
-            Qc::Standard {
+            Qc::Standard(StandardQc {
                 view: 0,
                 id: [0; 32],
-            },
+            }),
         );
         let p1 = Input::Proposal {
             view: 1,
             id: [1; 32],
-            parent_qc: Qc::Standard {
+            parent_qc: Qc::Standard(StandardQc {
                 view: 0,
                 id: [0; 32],
-            },
+            }),
         };
         let p2 = Input::Proposal {
             view: 2,
             id: [2; 32],
-            parent_qc: Qc::Standard {
+            parent_qc: Qc::Standard(StandardQc {
                 view: 1,
                 id: [1; 32],
-            },
+            }),
         };
         let _ = engine.step(p1);
         println!("step 1");
