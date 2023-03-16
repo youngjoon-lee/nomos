@@ -343,7 +343,7 @@ impl View {
         // We only consider the happy path for now
         if self.pipelined_safe_block(&block) {
             overlay
-                .approve_and_forward(self, &block, adapter, tally, &next_view)
+                .forward_vote(self, &block, adapter, tally, &next_view)
                 .await
                 .unwrap(); // FIXME: handle sad path
         }

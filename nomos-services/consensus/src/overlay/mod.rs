@@ -19,12 +19,14 @@ pub trait Overlay<Network: NetworkAdapter, Fountain: FountainCode, VoteTally: Ta
 
     fn new(view: &View, node: NodeId) -> Self;
 
+    // reconstruct proposal block from current view proposal channel
     async fn reconstruct_proposal_block(
         &self,
         view: &View,
         adapter: &Network,
         fountain: &Fountain,
     ) -> Result<Block<Self::TxId>, FountainError>;
+    // broadcast a block into the current view proposal channel
     async fn broadcast_block(
         &self,
         view: &View,
@@ -32,22 +34,20 @@ pub trait Overlay<Network: NetworkAdapter, Fountain: FountainCode, VoteTally: Ta
         adapter: &Network,
         fountain: &Fountain,
     );
-    /// Different overlays might have different needs or the same overlay might
-    /// require different steps depending on the node role
-    /// For now let's put this responsibility on the overlay
-    async fn approve_and_forward(
-        &self,
-        view: &View,
-        block: &Block<Self::TxId>,
-        adapter: &Network,
-        vote_tally: &VoteTally,
-        next_view: &View,
-    ) -> Result<(), Box<dyn Error>>;
-    /// Wait for consensus on a block
+    /// Wait for child votes on a block and build the certificate
     async fn build_qc(
         &self,
         view: &View,
         adapter: &Network,
         vote_tally: &VoteTally,
     ) -> VoteTally::Outcome;
+
+    /// Forward a vote for the specified view and block
+    async fn forward_vote(
+        &self,
+        view: &View,
+        vote: VoteTally::Vote,
+        adapter: &Network,
+        next_view: &View,
+    ) -> Result<(), Box<dyn Error>>;
 }

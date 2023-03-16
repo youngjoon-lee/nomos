@@ -46,6 +46,7 @@ impl MockQc {
 #[async_trait::async_trait]
 impl Tally for MockTally {
     type Vote = MockVote;
+    type Issuer = ();
     type Outcome = MockQc;
     type TallyError = Error;
     type Settings = MockTallySettings;
@@ -71,5 +72,13 @@ impl Tally for MockTally {
             }
         }
         Err(Error("Not enough votes".into()))
+    }
+
+    fn vote_from_outcome(
+        _: Self::Outcome,
+        view: u64,
+        _: Self::Issuer,
+    ) -> Result<Self::Vote, Self::TallyError> {
+        Ok(MockVote { view })
     }
 }

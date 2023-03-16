@@ -177,7 +177,7 @@ where
             .await;
     }
 
-    async fn approve_and_forward(
+    async fn forward_vote(
         &self,
         view: &View,
         _block: &Block<Self::TxId>,

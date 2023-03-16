@@ -68,10 +68,13 @@ pub struct CarnotTally {
     settings: CarnotTallySettings,
 }
 
+pub type SeenVotes = Vec<Vote>;
+
 #[async_trait::async_trait]
 impl Tally for CarnotTally {
     type Vote = Vote;
-    type Outcome = QuorumCertificate;
+    type Outcome = (QuorumCertificate, SeenVotes);
+    type Issuer = NodeId;
     type TallyError = CarnotTallyError;
     type Settings = CarnotTallySettings;
 
@@ -84,7 +87,7 @@ impl Tally for CarnotTally {
         view: u64,
         mut vote_stream: S,
     ) -> Result<Self::Outcome, Self::TallyError> {
-        let mut approved = 0usize;
+        let mut approved = vec![];
         let mut seen = HashSet::new();
         while let Some(vote) = vote_stream.next().await {
             // check vote view is valid
@@ -103,15 +106,31 @@ impl Tally for CarnotTally {
                     "Non-participating node".to_string(),
                 ));
             }
+            let block = vote.block;
             seen.insert(vote.voter);
-            approved += 1;
-            if approved >= self.settings.threshold {
-                return Ok(QuorumCertificate::Simple(SimpleQuorumCertificate {
-                    view,
-                    block: vote.block,
-                }));
+            approved.push(vote);
+            if approved.len() >= self.settings.threshold {
+                return Ok((
+                    QuorumCertificate::Simple(SimpleQuorumCertificate { view, block }),
+                    approved,
+                ));
             }
         }
         Err(CarnotTallyError::InsufficientVotes)
+    }
+
+    fn vote_from_outcome(
+        outcome: Self::Outcome,
+        view: u64,
+        issuer: Self::Issuer,
+    ) -> Result<Self::Vote, Self::TallyError> {
+        let (qc, votes) = outcome;
+        let Vote { block, .. } = votes.first().ok_or(CarnotTallyError::InsufficientVotes)?;
+        Ok(Vote {
+            block: *block,
+            view,
+            voter: issuer,
+            qc: Some(qc),
+        })
     }
 }

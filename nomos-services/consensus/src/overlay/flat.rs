@@ -90,23 +90,21 @@ where
             .await;
     }
 
-    async fn approve_and_forward(
+    async fn forward_vote(
         &self,
         view: &View,
-        block: &Block<Self::TxId>,
+        vote: VoteTally::Vote,
         adapter: &Network,
         _tally: &VoteTally,
         _next_view: &View,
     ) -> Result<(), Box<dyn Error>> {
         assert_eq!(view.view_n, self.view_n, "view_n mismatch");
-        // in the flat overlay, there's no need to wait for anyone before approving the block
-        let approval = self.approve(block);
         adapter
             .forward_approval(
                 FLAT_COMMITTEE,
                 view,
                 VoteMsg {
-                    vote: approval,
+                    vote,
                     source: self.node_id,
                 },
             )
