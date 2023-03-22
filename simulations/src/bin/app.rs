@@ -7,10 +7,10 @@ use simulations::{
     config::Config,
     node::{
         carnot::{CarnotNode, CarnotStep},
-        Node, StepTime,
+        Node, NodeId, StepTime,
     },
-    overlay::{flat::FlatOverlay, Overlay},
-    runner::ConsensusRunner,
+    overlay::{flat::FlatOverlay, tree::TreeOverlay, Overlay},
+    runner::{ConsensusRunner, Report},
 };
 
 /// Simple program to greet a person
@@ -30,12 +30,14 @@ struct Args {
 #[derive(clap::ValueEnum, Debug, Copy, Clone, Serialize, Deserialize)]
 enum OverlayType {
     Flat,
+    Tree,
 }
 
 impl core::fmt::Display for OverlayType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Flat => write!(f, "flat"),
+            Self::Tree => write!(f, "tree"),
         }
     }
 }
@@ -82,6 +84,26 @@ impl FromStr for OutputType {
     }
 }
 
+fn run_simulation<N, O>(
+    cfg: Config<N::Settings, O::Settings, CarnotStep>,
+    node_ids: Vec<NodeId>,
+    overlay: O,
+) -> Report
+where
+    N: Node,
+    N::Settings: Clone,
+    O: Overlay<N>,
+{
+    let mut rng = thread_rng();
+    let layout = overlay.layout(&node_ids, &mut rng);
+    let leaders = overlay.leaders(&node_ids, 1, &mut rng).collect();
+
+    let mut runner: ConsensusRunner<N> =
+        ConsensusRunner::new(&mut rng, layout, leaders, cfg.node_settings);
+    runner.run(Box::new(|times: &[StepTime]| *times.iter().max().unwrap())
+        as Box<dyn Fn(&[StepTime]) -> StepTime>)
+}
+
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let Args {
         config,
@@ -103,14 +125,20 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             #[allow(clippy::unit_arg)]
             let overlay = FlatOverlay::new(cfg.overlay_settings);
             let node_ids = (0..cfg.node_count).collect::<Vec<_>>();
-            let mut rng = thread_rng();
-            let layout = overlay.layout(&node_ids, &mut rng);
-            let leaders = overlay.leaders(&node_ids, 1, &mut rng).collect();
-
-            let mut runner: simulations::runner::ConsensusRunner<CarnotNode> =
-                ConsensusRunner::new(&mut rng, layout, leaders, cfg.node_settings);
-            runner.run(Box::new(|times: &[StepTime]| *times.iter().max().unwrap())
-                as Box<dyn Fn(&[StepTime]) -> StepTime>)
+            run_simulation(cfg, node_ids, overlay)
+        }
+        (OverlayType::Tree, NodeType::Carnot) => {
+            let cfg = serde_json::from_reader::<
+                _,
+                Config<
+                    <CarnotNode as Node>::Settings,
+                    <TreeOverlay as Overlay<CarnotNode>>::Settings,
+                    CarnotStep,
+                >,
+            >(std::fs::File::open(config)?)?;
+            let overlay = TreeOverlay::new(cfg.overlay_settings.clone());
+            let node_ids = (0..cfg.node_count).collect::<Vec<_>>();
+            run_simulation(cfg, node_ids, overlay)
         }
     };
 

@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 // crates
 use rand::seq::IteratorRandom;
+use serde::Deserialize;
 // internal
 use super::{Committee, Layout, Overlay};
 use crate::node::{
@@ -9,10 +10,12 @@ use crate::node::{
     NodeId,
 };
 
+#[derive(Clone, Deserialize)]
 pub enum TreeType {
     FullBinaryTree,
 }
 
+#[derive(Clone, Deserialize)]
 pub struct TreeSettings {
     pub tree_type: TreeType,
     pub committee_size: usize,
