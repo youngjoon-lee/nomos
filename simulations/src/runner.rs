@@ -415,4 +415,65 @@ mod test {
                 .round_time
         );
     }
+
+    #[test]
+    fn run_tree_network_config_regions() {
+        let mut rng = StepRng::new(1, 0);
+
+        let overlay = TreeOverlay::new(TreeSettings {
+            tree_type: TreeType::FullBinaryTree,
+            depth: 4, // Increased depth to 4
+            committee_size: 100,
+        });
+
+        let node_ids = overlay.nodes();
+        let layout = overlay.layout(&node_ids, &mut rng);
+        let leaders = vec![1];
+
+        let region_size = node_ids.len() / 6;
+        let regions = vec![
+            Region::NorthAmerica,
+            Region::Europe,
+            Region::Asia,
+            Region::Africa,
+            Region::SouthAmerica,
+            Region::Australia,
+        ];
+
+        let mut region_nodes = HashMap::new();
+        for (index, region) in regions.iter().enumerate() {
+            region_nodes.insert(
+                *region,
+                node_ids[index * region_size..(index + 1) * region_size].to_vec(),
+            );
+        }
+
+        let network_behaviour = HashMap::from([
+            (
+                (Region::NorthAmerica, Region::Europe),
+                NetworkBehaviour::new(Duration::from_millis(300), 0.0),
+            ),
+            (
+                (Region::NorthAmerica, Region::Asia),
+                NetworkBehaviour::new(Duration::from_millis(400), 0.0),
+            ),
+        ]);
+
+        // let node_settings: CarnotNodeSettings = CarnotNodeSettings {
+        //     steps_costs: CARNOT_STEPS_COSTS.iter().cloned().collect(),
+        //     network: Network::new(RegionsData::new(region_nodes, network_behaviour)),
+        //     layout: overlay.layout(&node_ids, &mut rng),
+        //     leaders: leaders.clone(),
+        // };
+
+        // let mut runner =
+        //     ConsensusRunner::<CarnotNode>::new(&mut rng, layout, leaders, Rc::new(node_settings));
+
+        // assert_eq!(
+        //     Duration::from_millis(11000),
+        //     runner
+        //         .run(Box::new(|times: &[StepTime]| *times.iter().max().unwrap()) as Reducer)
+        //         .round_time
+        // );
+    }
 }
