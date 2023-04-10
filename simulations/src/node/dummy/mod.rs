@@ -5,7 +5,7 @@ use crossbeam::channel::{Receiver, Sender};
 use serde::{Deserialize, Serialize};
 // internal
 use crate::{
-    network::{NetworkInterface, NetworkMessage},
+    network::{Network, NetworkInterface, NetworkMessage},
     node::{Node, NodeId},
 };
 
@@ -128,12 +128,15 @@ impl LocalView {
     }
 }
 
-pub struct DummyNode {
+pub struct DummyNode<N>
+where
+    N: NetworkInterface<Payload = DummyMessage>,
+{
     node_id: NodeId,
     state: DummyState,
     _settings: DummySettings,
     overlay_state: SharedState<OverlayState>,
-    network_interface: DummyNetworkInterface,
+    network_interface: N,
     local_view: LocalView,
 
     // Node in current view might be a leader in the next view.
@@ -151,12 +154,15 @@ pub enum DummyRole {
     Unknown,
 }
 
-impl DummyNode {
+impl<N> DummyNode<N>
+where
+    N: NetworkInterface<Payload = DummyMessage>,
+{
     pub fn new(
         node_id: NodeId,
         view_id: usize,
         overlay_state: SharedState<OverlayState>,
-        network_interface: DummyNetworkInterface,
+        network_interface: N,
     ) -> Self {
         Self {
             node_id,
@@ -352,7 +358,10 @@ impl DummyNode {
     }
 }
 
-impl Node for DummyNode {
+impl<N> Node for DummyNode<N>
+where
+    N: NetworkInterface<Payload = DummyMessage>,
+{
     type Settings = DummySettings;
     type State = DummyState;
 
@@ -375,39 +384,6 @@ impl Node for DummyNode {
         incoming_messages
             .iter()
             .for_each(|m| self.handle_message(m));
-    }
-}
-
-pub struct DummyNetworkInterface {
-    id: NodeId,
-    sender: Sender<NetworkMessage<DummyMessage>>,
-    receiver: Receiver<NetworkMessage<DummyMessage>>,
-}
-
-impl DummyNetworkInterface {
-    pub fn new(
-        id: NodeId,
-        sender: Sender<NetworkMessage<DummyMessage>>,
-        receiver: Receiver<NetworkMessage<DummyMessage>>,
-    ) -> Self {
-        Self {
-            id,
-            sender,
-            receiver,
-        }
-    }
-}
-
-impl NetworkInterface for DummyNetworkInterface {
-    type Payload = DummyMessage;
-
-    fn send_message(&self, address: NodeId, message: Self::Payload) {
-        let message = NetworkMessage::new(self.id, address, message);
-        self.sender.send(message).unwrap();
-    }
-
-    fn receive_messages(&self) -> Vec<crate::network::NetworkMessage<Self::Payload>> {
-        self.receiver.try_iter().collect()
     }
 }
 
@@ -465,7 +441,7 @@ mod tests {
     use crossbeam::channel;
     use rand::{
         rngs::{mock::StepRng, SmallRng},
-        Rng, SeedableRng,
+        SeedableRng,
     };
     use rayon::prelude::*;
 
@@ -473,11 +449,11 @@ mod tests {
         network::{
             behaviour::NetworkBehaviour,
             regions::{Region, RegionsData},
-            Network,
+            InMemoryNetworkInterface, Network,
         },
         node::{
             dummy::{get_child_nodes, get_parent_nodes, get_roles, DummyRole},
-            Node, NodeId, OverlayState, SharedState, ViewOverlay,
+            generate_overlays, Node, NodeId, OverlayState, SharedState, ViewOverlay,
         },
         overlay::{
             tree::{TreeOverlay, TreeSettings},
@@ -485,7 +461,7 @@ mod tests {
         },
     };
 
-    use super::{DummyMessage, DummyNetworkInterface, DummyNode, Intent, Vote};
+    use super::{DummyMessage, DummyNode, Intent, Vote};
 
     fn init_network(node_ids: &[NodeId]) -> Network<DummyMessage> {
         let regions = HashMap::from([(Region::Europe, node_ids.to_vec())]);
@@ -501,13 +477,13 @@ mod tests {
         node_ids: &[NodeId],
         network: &mut Network<DummyMessage>,
         overlay_state: SharedState<OverlayState>,
-    ) -> HashMap<NodeId, DummyNode> {
+    ) -> HashMap<NodeId, DummyNode<InMemoryNetworkInterface<DummyMessage>>> {
         node_ids
             .iter()
             .map(|node_id| {
                 let (node_message_sender, node_message_receiver) = channel::unbounded();
                 let network_message_receiver = network.connect(*node_id, node_message_receiver);
-                let network_interface = DummyNetworkInterface::new(
+                let network_interface = InMemoryNetworkInterface::new(
                     *node_id,
                     node_message_sender,
                     network_message_receiver,
@@ -520,30 +496,10 @@ mod tests {
             .collect()
     }
 
-    fn generate_overlays<O: Overlay, R: Rng>(
-        node_ids: &[NodeId],
-        overlay: O,
-        overlay_count: usize,
-        leader_count: usize,
-        rng: &mut R,
-    ) -> BTreeMap<usize, ViewOverlay> {
-        (0..overlay_count)
-            .map(|view_id| {
-                (
-                    view_id,
-                    ViewOverlay {
-                        leaders: overlay.leaders(node_ids, leader_count, rng).collect(),
-                        layout: overlay.layout(node_ids, rng),
-                    },
-                )
-            })
-            .collect()
-    }
-
     fn send_initial_votes(
         overlays: &BTreeMap<usize, ViewOverlay>,
         committee_size: usize,
-        nodes: &HashMap<NodeId, DummyNode>,
+        nodes: &HashMap<NodeId, DummyNode<InMemoryNetworkInterface<DummyMessage>>>,
     ) {
         let initial_vote = Vote::new(1, Intent::FromRootToLeader);
         overlays

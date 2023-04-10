@@ -77,7 +77,7 @@ mod tests {
         node_ids: &[NodeId],
         network: &mut Network<DummyMessage>,
         overlay_state: SharedState<OverlayState>,
-    ) -> Vec<DummyNode> {
+    ) -> Vec<DummyNode<DummyNetworkInterface>> {
         node_ids
             .iter()
             .map(|node_id| {
@@ -115,8 +115,11 @@ mod tests {
         }));
         let nodes = init_dummy_nodes(&node_ids, &mut network, overlay_state);
 
-        let mut runner: SimulationRunner<DummyMessage, DummyNode, TreeOverlay> =
-            SimulationRunner::new(network, nodes, settings);
+        let mut runner: SimulationRunner<
+            DummyMessage,
+            DummyNode<DummyNetworkInterface>,
+            TreeOverlay,
+        > = SimulationRunner::new(network, nodes, settings);
         runner.step();
 
         let nodes = runner.nodes.read().unwrap();
@@ -159,8 +162,11 @@ mod tests {
         }
         network.collect_messages();
 
-        let mut runner: SimulationRunner<DummyMessage, DummyNode, TreeOverlay> =
-            SimulationRunner::new(network, nodes, settings);
+        let mut runner: SimulationRunner<
+            DummyMessage,
+            DummyNode<DummyNetworkInterface>,
+            TreeOverlay,
+        > = SimulationRunner::new(network, nodes, settings);
 
         runner.step();
 
