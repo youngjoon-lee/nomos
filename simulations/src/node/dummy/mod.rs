@@ -11,6 +11,8 @@ use crate::{
 
 use super::{OverlayGetter, OverlayState, SharedState, ViewOverlay};
 
+pub mod setup;
+
 #[derive(Debug, Default, Serialize)]
 pub struct DummyState {
     pub current_view: usize,
