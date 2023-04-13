@@ -2,6 +2,7 @@ pub mod carnot;
 pub mod dummy;
 
 // std
+use rand::Rng;
 use std::{
     collections::BTreeMap,
     ops::{Deref, DerefMut},
@@ -11,7 +12,10 @@ use std::{
 // crates
 use serde::{Deserialize, Serialize};
 // internal
-use crate::overlay::Layout;
+use crate::{
+    network::{InMemoryNetworkInterface, NetworkInterface},
+    overlay::{Layout, Overlay},
+};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -123,6 +127,26 @@ pub struct ViewOverlay {
     pub layout: Layout,
 }
 
+pub fn generate_overlays<O: Overlay, R: Rng>(
+    node_ids: &[NodeId],
+    overlay: O,
+    overlay_count: usize,
+    leader_count: usize,
+    rng: &mut R,
+) -> BTreeMap<usize, ViewOverlay> {
+    (0..overlay_count)
+        .map(|view_id| {
+            (
+                view_id,
+                ViewOverlay {
+                    leaders: overlay.leaders(node_ids, leader_count, rng).collect(),
+                    layout: overlay.layout(node_ids, rng),
+                },
+            )
+        })
+        .collect()
+}
+
 pub type SharedState<S> = Arc<RwLock<S>>;
 
 /// A state that represents how nodes are interconnected in the network.
@@ -151,7 +175,14 @@ impl OverlayGetter for SharedState<OverlayState> {
 pub trait Node {
     type Settings;
     type State;
+    type NetworkInterface;
 
+    fn new(
+        node_id: NodeId,
+        view_id: usize,
+        overlay_state: SharedState<OverlayState>,
+        network_interface: Self::NetworkInterface,
+    ) -> Self;
     fn id(&self) -> NodeId;
     // TODO: View must be view whenever we integrate consensus engine
     fn current_view(&self) -> usize;
@@ -163,6 +194,16 @@ pub trait Node {
 impl Node for usize {
     type Settings = ();
     type State = Self;
+    type NetworkInterface = InMemoryNetworkInterface<()>;
+
+    fn new(
+        node_id: NodeId,
+        _view_id: usize,
+        _overlay_state: SharedState<OverlayState>,
+        _network_interface: Self::NetworkInterface,
+    ) -> Self {
+        node_id.inner()
+    }
 
     fn id(&self) -> NodeId {
         (*self).into()

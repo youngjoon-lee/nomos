@@ -42,10 +42,10 @@ mod tests {
         network::{
             behaviour::NetworkBehaviour,
             regions::{Region, RegionsData},
-            Network,
+            InMemoryNetworkInterface, Network,
         },
         node::{
-            dummy::{DummyMessage, DummyNetworkInterface, DummyNode, DummySettings},
+            dummy::{DummyMessage, DummyNode, DummySettings},
             Node, NodeId, OverlayState, SharedState, ViewOverlay,
         },
         overlay::{
@@ -77,13 +77,13 @@ mod tests {
         node_ids: &[NodeId],
         network: &mut Network<DummyMessage>,
         overlay_state: SharedState<OverlayState>,
-    ) -> Vec<DummyNode<DummyNetworkInterface>> {
+    ) -> Vec<DummyNode> {
         node_ids
             .iter()
             .map(|node_id| {
                 let (node_message_sender, node_message_receiver) = channel::unbounded();
                 let network_message_receiver = network.connect(*node_id, node_message_receiver);
-                let network_interface = DummyNetworkInterface::new(
+                let network_interface = InMemoryNetworkInterface::new(
                     *node_id,
                     node_message_sender,
                     network_message_receiver,
@@ -115,11 +115,8 @@ mod tests {
         }));
         let nodes = init_dummy_nodes(&node_ids, &mut network, overlay_state);
 
-        let mut runner: SimulationRunner<
-            DummyMessage,
-            DummyNode<DummyNetworkInterface>,
-            TreeOverlay,
-        > = SimulationRunner::new(network, nodes, settings);
+        let mut runner: SimulationRunner<DummyMessage, DummyNode, TreeOverlay> =
+            SimulationRunner::new(network, nodes, settings);
         runner.step();
 
         let nodes = runner.nodes.read().unwrap();
@@ -162,11 +159,8 @@ mod tests {
         }
         network.collect_messages();
 
-        let mut runner: SimulationRunner<
-            DummyMessage,
-            DummyNode<DummyNetworkInterface>,
-            TreeOverlay,
-        > = SimulationRunner::new(network, nodes, settings);
+        let mut runner: SimulationRunner<DummyMessage, DummyNode, TreeOverlay> =
+            SimulationRunner::new(network, nodes, settings);
 
         runner.step();
 

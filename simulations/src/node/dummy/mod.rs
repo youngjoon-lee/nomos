@@ -5,7 +5,7 @@ use crossbeam::channel::{Receiver, Sender};
 use serde::{Deserialize, Serialize};
 // internal
 use crate::{
-    network::{Network, NetworkInterface, NetworkMessage},
+    network::{InMemoryNetworkInterface, Network, NetworkInterface, NetworkMessage},
     node::{Node, NodeId},
 };
 
@@ -128,15 +128,12 @@ impl LocalView {
     }
 }
 
-pub struct DummyNode<N>
-where
-    N: NetworkInterface<Payload = DummyMessage>,
-{
+pub struct DummyNode {
     node_id: NodeId,
     state: DummyState,
     _settings: DummySettings,
     overlay_state: SharedState<OverlayState>,
-    network_interface: N,
+    network_interface: InMemoryNetworkInterface<DummyMessage>,
     local_view: LocalView,
 
     // Node in current view might be a leader in the next view.
@@ -154,27 +151,7 @@ pub enum DummyRole {
     Unknown,
 }
 
-impl<N> DummyNode<N>
-where
-    N: NetworkInterface<Payload = DummyMessage>,
-{
-    pub fn new(
-        node_id: NodeId,
-        view_id: usize,
-        overlay_state: SharedState<OverlayState>,
-        network_interface: N,
-    ) -> Self {
-        Self {
-            node_id,
-            state: Default::default(),
-            _settings: Default::default(),
-            overlay_state: overlay_state.clone(),
-            network_interface,
-            local_view: LocalView::new(node_id, view_id, overlay_state),
-            temp_leader_state: Default::default(),
-        }
-    }
-
+impl DummyNode {
     pub fn send_message(&self, address: NodeId, message: DummyMessage) {
         self.network_interface.send_message(address, message);
     }
@@ -358,12 +335,27 @@ where
     }
 }
 
-impl<N> Node for DummyNode<N>
-where
-    N: NetworkInterface<Payload = DummyMessage>,
-{
+impl Node for DummyNode {
     type Settings = DummySettings;
     type State = DummyState;
+    type NetworkInterface = InMemoryNetworkInterface<DummyMessage>;
+
+    fn new(
+        node_id: NodeId,
+        view_id: usize,
+        overlay_state: SharedState<OverlayState>,
+        network_interface: Self::NetworkInterface,
+    ) -> Self {
+        Self {
+            node_id,
+            state: Default::default(),
+            _settings: Default::default(),
+            overlay_state: overlay_state.clone(),
+            network_interface,
+            local_view: LocalView::new(node_id, view_id, overlay_state),
+            temp_leader_state: Default::default(),
+        }
+    }
 
     fn id(&self) -> NodeId {
         self.node_id
@@ -477,7 +469,7 @@ mod tests {
         node_ids: &[NodeId],
         network: &mut Network<DummyMessage>,
         overlay_state: SharedState<OverlayState>,
-    ) -> HashMap<NodeId, DummyNode<InMemoryNetworkInterface<DummyMessage>>> {
+    ) -> HashMap<NodeId, DummyNode> {
         node_ids
             .iter()
             .map(|node_id| {
@@ -499,7 +491,7 @@ mod tests {
     fn send_initial_votes(
         overlays: &BTreeMap<usize, ViewOverlay>,
         committee_size: usize,
-        nodes: &HashMap<NodeId, DummyNode<InMemoryNetworkInterface<DummyMessage>>>,
+        nodes: &HashMap<NodeId, DummyNode>,
     ) {
         let initial_vote = Vote::new(1, Intent::FromRootToLeader);
         overlays
