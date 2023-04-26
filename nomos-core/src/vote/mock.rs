@@ -7,11 +7,11 @@ use crate::vote::Tally;
 
 #[derive(Serialize, Deserialize)]
 pub struct MockVote {
-    view: u64,
+    view: i64,
 }
 
 impl MockVote {
-    pub fn view(&self) -> u64 {
+    pub fn view(&self) -> i64 {
         self.view
     }
 }
@@ -58,7 +58,7 @@ impl Tally for MockTally {
 
     async fn tally<S: Stream<Item = Self::Vote> + Unpin + Send>(
         &self,
-        view: u64,
+        view: consensus_engine::View,
         mut vote_stream: S,
     ) -> Result<(Self::Qc, Self::Outcome), Self::TallyError> {
         let mut count_votes = 0;

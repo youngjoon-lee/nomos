@@ -3,14 +3,17 @@ use std::collections::{HashMap, HashSet};
 mod io;
 use io::*;
 
+pub use io::{AggregateQc, Qc, StandardQc};
+
 pub type View = i64;
 pub type Id = [u8; 32];
 pub type Committee = HashSet<Id>;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Vote {
-    block: Id,
-    voter: Id,
+    pub block: Id,
+    pub view: View,
+    pub voter: Id,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -76,6 +79,10 @@ pub struct ConsensusEngine<O: Overlay> {
 }
 
 impl<O: Overlay> ConsensusEngine<O> {
+    pub fn overlay(&self) -> &O {
+        &self.state.overlay
+    }
+
     pub fn from_genesis(id: Id, genesis_block: Block, overlay: O) -> Self {
         Self {
             state: CarnotState {
@@ -177,6 +184,7 @@ impl<O: Overlay> CarnotState<O> {
                 payload: Payload::Vote(Vote {
                     block: block.id,
                     voter: self.id,
+                    view: block.view,
                 }),
             };
         }
@@ -185,6 +193,7 @@ impl<O: Overlay> CarnotState<O> {
             payload: Payload::Vote(Vote {
                 block: block.id,
                 voter: self.id,
+                view: block.view,
             }),
         }
     }

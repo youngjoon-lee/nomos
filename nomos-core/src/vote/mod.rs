@@ -13,7 +13,7 @@ pub trait Tally {
     fn new(settings: Self::Settings) -> Self;
     async fn tally<S: Stream<Item = Self::Vote> + Unpin + Send>(
         &self,
-        view: u64,
+        view: consensus_engine::View,
         vote_stream: S,
     ) -> Result<(Self::Qc, Self::Outcome), Self::TallyError>;
 }

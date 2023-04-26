@@ -9,45 +9,9 @@ use futures::{Stream, StreamExt};
 use crate::block::BlockId;
 use crate::crypto::PublicKey;
 use crate::vote::Tally;
+use consensus_engine::{AggregateQc, Qc, StandardQc, Vote};
 
 pub type NodeId = PublicKey;
-
-pub enum QuorumCertificate {
-    Simple(SimpleQuorumCertificate),
-    Aggregated(AggregatedQuorumCertificate),
-}
-
-impl QuorumCertificate {
-    pub fn view(&self) -> u64 {
-        match self {
-            QuorumCertificate::Simple(qc) => qc.view,
-            QuorumCertificate::Aggregated(qc) => qc.view,
-        }
-    }
-}
-
-pub struct SimpleQuorumCertificate {
-    view: u64,
-    block: BlockId,
-}
-
-pub struct AggregatedQuorumCertificate {
-    view: u64,
-    high_qh: Box<QuorumCertificate>,
-}
-
-pub struct Vote {
-    block: BlockId,
-    view: u64,
-    voter: NodeId, // TODO: this should be some id, probably the node pk
-    qc: Option<QuorumCertificate>,
-}
-
-impl Vote {
-    pub fn valid_view(&self, view: u64) -> bool {
-        self.view == view && self.qc.as_ref().map_or(true, |qc| qc.view() == view - 1)
-    }
-}
 
 #[derive(thiserror::Error, Debug)]
 pub enum CarnotTallyError {
@@ -71,7 +35,7 @@ pub struct CarnotTally {
 #[async_trait::async_trait]
 impl Tally for CarnotTally {
     type Vote = Vote;
-    type Qc = QuorumCertificate;
+    type Qc = Qc;
     type Outcome = ();
     type TallyError = CarnotTallyError;
     type Settings = CarnotTallySettings;
@@ -82,14 +46,14 @@ impl Tally for CarnotTally {
 
     async fn tally<S: Stream<Item = Self::Vote> + Unpin + Send>(
         &self,
-        view: u64,
+        view: consensus_engine::View,
         mut vote_stream: S,
     ) -> Result<(Self::Qc, Self::Outcome), Self::TallyError> {
         let mut approved = 0usize;
         let mut seen = HashSet::new();
         while let Some(vote) = vote_stream.next().await {
             // check vote view is valid
-            if !vote.valid_view(view) {
+            if vote.view != view {
                 return Err(CarnotTallyError::InvalidVote("Invalid view".to_string()));
             }
             // check for duplicated votes
@@ -108,9 +72,9 @@ impl Tally for CarnotTally {
             approved += 1;
             if approved >= self.settings.threshold {
                 return Ok((
-                    QuorumCertificate::Simple(SimpleQuorumCertificate {
+                    Qc::Standard(StandardQc {
                         view,
-                        block: vote.block,
+                        id: vote.block,
                     }),
                     (),
                 ));
