@@ -19,7 +19,7 @@ use serde::de::DeserializeOwned;
 use simulations::network::behaviour::create_behaviours;
 use simulations::network::regions::{create_regions, RegionsData};
 use simulations::network::{InMemoryNetworkInterface, Network};
-use simulations::node::dummy::DummyNode;
+use simulations::node::dummy::{DummyNode, Vote};
 use simulations::node::{Node, NodeId, OverlayState, ViewOverlay};
 use simulations::overlay::{create_overlay, Overlay, SimulationOverlay};
 use simulations::streaming::StreamType;
@@ -75,7 +75,7 @@ impl SimulationApp {
         let overlay_state = Arc::new(RwLock::new(OverlayState {
             all_nodes: node_ids.clone(),
             overlay,
-            overlays,
+            overlays: overlays.clone(),
         }));
 
         let mut network = Network::new(regions_data);
@@ -89,7 +89,7 @@ impl SimulationApp {
                 run(network, nodes, simulation_settings, stream_type)?;
             }
             simulations::settings::NodeSettings::Dummy => {
-                let nodes = node_ids
+                let nodes: HashMap<NodeId, DummyNode> = node_ids
                     .iter()
                     .map(|node_id| {
                         let (node_message_sender, node_message_receiver) = channel::unbounded();
@@ -100,10 +100,39 @@ impl SimulationApp {
                             node_message_sender,
                             network_message_receiver,
                         );
-                        DummyNode::new(*node_id, 0, overlay_state.clone(), network_interface)
+                        (
+                            *node_id,
+                            DummyNode::new(*node_id, 0, overlay_state.clone(), network_interface),
+                        )
                     })
                     .collect();
-                run(network, nodes, simulation_settings, stream_type)?;
+
+                // Next view leaders.
+                let leaders = &overlays
+                    .get(&1)
+                    .ok_or_else(|| anyhow::Error::msg("no leaders"))?
+                    .leaders;
+
+                // Set initial messages from root nodes to next view leaders.
+                overlays
+                    .get(&0)
+                    .ok_or_else(|| anyhow::Error::msg("no roots"))?
+                    .layout
+                    .committee_nodes(0.into())
+                    .nodes
+                    .iter()
+                    .for_each(|r_id| {
+                        leaders.iter().for_each(|l_id| {
+                            nodes[r_id].send_message(*l_id, Vote::root_to_leader(1).into())
+                        });
+                    });
+
+                run(
+                    network,
+                    Vec::from_iter(nodes.values().cloned()),
+                    simulation_settings,
+                    stream_type,
+                )?;
             }
         };
         Ok(())

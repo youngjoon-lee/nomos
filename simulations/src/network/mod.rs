@@ -168,6 +168,7 @@ pub trait NetworkInterface {
     fn receive_messages(&self) -> Vec<NetworkMessage<Self::Payload>>;
 }
 
+#[derive(Clone)]
 pub struct InMemoryNetworkInterface<M> {
     id: NodeId,
     sender: Sender<NetworkMessage<M>>,
@@ -188,7 +189,7 @@ impl<M> InMemoryNetworkInterface<M> {
     }
 }
 
-impl<M> NetworkInterface for InMemoryNetworkInterface<M> {
+impl<M: std::fmt::Debug> NetworkInterface for InMemoryNetworkInterface<M> {
     type Payload = M;
 
     fn send_message(&self, address: NodeId, message: Self::Payload) {
@@ -197,7 +198,9 @@ impl<M> NetworkInterface for InMemoryNetworkInterface<M> {
     }
 
     fn receive_messages(&self) -> Vec<crate::network::NetworkMessage<Self::Payload>> {
-        self.receiver.try_iter().collect()
+        let msgs = self.receiver.try_iter().collect();
+        println!("msgs: {msgs:?}");
+        msgs
     }
 }
 

@@ -2,19 +2,19 @@
   "wards": [
     {
       "max_view": {
-        "max_view": 1 
+        "max_view": 4 
       }
     },
     {
       "min_max_view": {
-        "max_gap": 1 
+        "max_gap": 2
       }
     },
     {
       "stalled_view": {
-        "consecutive_viewed_checkpoint": 1,
-        "criterion": 1,
-        "threshold": 1 
+        "consecutive_viewed_checkpoint": 10,
+        "criterion": 3,
+        "threshold": 3 
       }
     }
   ],
@@ -64,8 +64,8 @@
   "node_settings": "Dummy",
   "runner_settings": "Sync",
   "stream_settings": {
-    "IO": {
-      "writer_type": "Stdout"
+    "Naive": {
+      "path": "sim_naive_stream.txt"
     }
   },
   "node_count": 10,

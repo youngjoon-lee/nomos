@@ -10,14 +10,14 @@ use crate::{
 
 use super::{OverlayGetter, OverlayState, SharedState, ViewOverlay};
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct DummyState {
     pub current_view: usize,
     pub message_count: usize,
     pub view_state: BTreeMap<usize, DummyViewState>,
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct DummyViewState {
     proposal_received: bool,
     vote_received_count: usize,
@@ -44,14 +44,21 @@ pub struct Vote {
 }
 
 impl Vote {
-    pub fn new(id: usize, intent: Intent) -> Self {
-        Self { view: id, intent }
+    pub fn new(view: usize, intent: Intent) -> Self {
+        Self { view, intent }
     }
 
     pub fn upgrade(&self, intent: Intent) -> Self {
         Self {
             view: self.view,
             intent,
+        }
+    }
+
+    pub fn root_to_leader(view: usize) -> Self {
+        Self {
+            view,
+            intent: Intent::FromRootToLeader,
         }
     }
 }
@@ -88,6 +95,13 @@ pub enum DummyMessage {
     Proposal(Block),
 }
 
+impl From<Vote> for DummyMessage {
+    fn from(vote: Vote) -> Self {
+        Self::Vote(vote)
+    }
+}
+
+#[derive(Clone)]
 struct LocalView {
     pub next_view_leaders: Vec<NodeId>,
     pub current_roots: Option<BTreeSet<NodeId>>,
@@ -125,6 +139,7 @@ impl LocalView {
     }
 }
 
+#[derive(Clone)]
 pub struct DummyNode {
     node_id: NodeId,
     state: DummyState,
