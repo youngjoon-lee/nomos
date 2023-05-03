@@ -130,6 +130,7 @@ where
             views_count: _,
             leaders_count: _,
             network_settings: _,
+            sim_duration: _,
         } = settings;
         Self {
             runner_settings,

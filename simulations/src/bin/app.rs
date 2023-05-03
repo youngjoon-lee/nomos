@@ -149,7 +149,8 @@ where
             bail!(p, settings, PolarsSubscriber);
         }
     };
-    Ok(())
+
+    Ok(handle.stop_after(sim_duration)?)
 }
 
 /// Generically load a json file

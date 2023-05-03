@@ -1,8 +1,11 @@
+use std::time::Duration;
+
 use crate::network::NetworkSettings;
 use crate::overlay::OverlaySettings;
 use crate::streaming::StreamSettings;
 use crate::warding::Ward;
 use serde::Deserialize;
+use serde_with::serde_as;
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub enum RunnerSettings {
@@ -28,6 +31,7 @@ pub enum NodeSettings {
     Dummy,
 }
 
+#[serde_with::serde_as]
 #[derive(Default, Deserialize)]
 pub struct SimulationSettings {
     #[serde(default)]
@@ -41,4 +45,6 @@ pub struct SimulationSettings {
     pub views_count: usize,
     pub leaders_count: usize,
     pub seed: Option<u64>,
+    #[serde_as(as = "serde_with::DurationSeconds")]
+    pub sim_duration: Duration,
 }
