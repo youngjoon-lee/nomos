@@ -17,9 +17,24 @@ pub mod regions;
 
 type NetworkTime = Instant;
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct NetworkDelays {
+    pub region: regions::Region,
+    pub delays: [u16; 6],
+}
+
+impl Default for NetworkDelays {
+    fn default() -> Self {
+        NetworkDelays {
+            region: regions::Region::NorthAmerica,
+            delays: [0; 6],
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct NetworkSettings {
-    pub network_behaviors: HashMap<(regions::Region, regions::Region), Duration>,
+    pub network_behaviors: [NetworkDelays; 6],
     /// Represents node distribution in the simulated regions.
     /// The sum of distributions should be 1.
     pub regions: HashMap<regions::Region, f32>,

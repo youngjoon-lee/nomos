@@ -27,14 +27,31 @@ impl NetworkBehaviour {
     }
 }
 
-// Takes a reference to the simulation_settings and returns a HashMap representing the
+// Takes a reference to the network_settings and returns a HashMap representing the
 // network behaviors for pairs of NodeIds.
 pub fn create_behaviours(
     network_settings: &NetworkSettings,
 ) -> HashMap<(Region, Region), NetworkBehaviour> {
-    network_settings
-        .network_behaviors
-        .iter()
-        .map(|((a, b), d)| ((*a, *b), NetworkBehaviour::new(*d, 0.0)))
-        .collect()
+    let mut behaviours = HashMap::new();
+
+    for nd in &network_settings.network_behaviors {
+        for (i, delay) in nd.delays.iter().enumerate() {
+            let from_region = nd.region;
+            let to_region = match i {
+                0 => Region::NorthAmerica,
+                1 => Region::Europe,
+                2 => Region::Asia,
+                3 => Region::Africa,
+                4 => Region::SouthAmerica,
+                5 => Region::Australia,
+                _ => panic!("Invalid region index"),
+            };
+
+            let behaviour =
+                NetworkBehaviour::new(std::time::Duration::from_millis(*delay as u64), 0.0);
+            behaviours.insert((from_region, to_region), behaviour);
+        }
+    }
+
+    behaviours
 }
