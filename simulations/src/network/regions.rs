@@ -103,7 +103,7 @@ mod tests {
     use crate::{
         network::{
             regions::{create_regions, Region},
-            NetworkSettings,
+            NetworkDelays, NetworkSettings,
         },
         node::NodeId,
     };
@@ -163,7 +163,7 @@ mod tests {
             }
 
             let settings = NetworkSettings {
-                network_behaviors: HashMap::new(),
+                network_behaviors: vec![NetworkDelays::default(); 6],
                 regions: region_distribution,
             };
 

@@ -1,0 +1,76 @@
+{
+  "wards": [
+    {
+      "max_view": {
+        "max_view": 4 
+      }
+    },
+    {
+      "min_max_view": {
+        "max_gap": 2
+      }
+    },
+    {
+      "stalled_view": {
+        "consecutive_viewed_checkpoint": 10,
+        "criterion": 3,
+        "threshold": 3 
+      }
+    }
+  ],
+  "network_settings": {
+    "network_behaviors": [
+      {
+        "region": "NorthAmerica",
+        "delays": [ 0, 50, 150, 200, 100, 250 ]
+      },
+      {
+        "region": "Europe",
+        "delays": [ 50, 0, 100, 150, 75, 200 ]
+      },
+      {
+        "region": "Asia",
+        "delays": [ 150, 100, 0, 250, 300, 350 ]
+      },
+      {
+        "region": "Africa",
+        "delays": [ 200, 150, 250, 0, 400, 450 ]
+      },
+      {
+        "region": "SouthAmerica",
+        "delays": [ 100, 75, 300, 400, 0, 500 ]
+      },
+      {
+        "region": "Australia",
+        "delays": [ 250, 200, 350, 450, 500, 0 ]
+      }
+    ],
+    "regions": {
+      "NorthAmerica": 0.1,
+      "Europe": 0.1,
+      "Asia": 0.1,
+      "Africa": 0.2,
+      "SouthAmerica": 0.2,
+      "Australia": 0.3
+    }
+  },
+  "overlay_settings": {
+    "Tree": {
+      "tree_type": "FullBinaryTree",
+      "committee_size": 1,
+      "depth": 3
+    }
+  },
+  "node_settings": "Dummy",
+  "runner_settings": "Sync",
+  "stream_settings": {
+    "Naive": {
+      "path": "sim_naive_stream.txt"
+    }
+  },
+  "node_count": 10,
+  "views_count": 20,
+  "leaders_count": 2,
+  "seed": 12345,
+  "sim_duration": 10
+}

@@ -34,7 +34,7 @@ impl Default for NetworkDelays {
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct NetworkSettings {
-    pub network_behaviors: [NetworkDelays; 6],
+    pub network_behaviors: Vec<NetworkDelays>,
     /// Represents node distribution in the simulated regions.
     /// The sum of distributions should be 1.
     pub regions: HashMap<regions::Region, f32>,
@@ -199,7 +199,6 @@ impl<M: std::fmt::Debug> NetworkInterface for InMemoryNetworkInterface<M> {
 
     fn receive_messages(&self) -> Vec<crate::network::NetworkMessage<Self::Payload>> {
         let msgs = self.receiver.try_iter().collect();
-        println!("msgs: {msgs:?}");
         msgs
     }
 }
