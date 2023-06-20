@@ -1,9 +1,12 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use polars::prelude::{NamedFrom, Series};
 use serde::Serialize;
 
+use crate::node::carnot::CarnotState;
 use crate::settings::SimulationSettings;
+use crate::streaming::polars::ToSeries;
 use crate::warding::SimulationState;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -31,6 +34,8 @@ pub trait Record: From<Runtime> + From<SimulationSettings> + Send + Sync + 'stat
 
 pub type SerializedNodeState = serde_json::Value;
 
+pub type SeriesNodeState = Vec<polars::series::Series>;
+
 #[derive(Serialize)]
 pub struct Runtime {
     start: DateTime<Utc>,
@@ -57,7 +62,7 @@ impl Runtime {
 pub enum OutData {
     Runtime(Runtime),
     Settings(Box<SimulationSettings>),
-    Data(SerializedNodeState),
+    Data(Box<CarnotState>),
 }
 
 impl From<Runtime> for OutData {
@@ -72,9 +77,9 @@ impl From<SimulationSettings> for OutData {
     }
 }
 
-impl From<SerializedNodeState> for OutData {
-    fn from(state: SerializedNodeState) -> Self {
-        Self::Data(state)
+impl From<CarnotState> for OutData {
+    fn from(state: CarnotState) -> Self {
+        Self::Data(Box::new(state))
     }
 }
 
@@ -89,9 +94,8 @@ impl Record for OutData {
 }
 
 impl OutData {
-    #[inline]
-    pub const fn new(state: SerializedNodeState) -> Self {
-        Self::Data(state)
+    pub fn new(state: CarnotState) -> Self {
+        Self::Data(Box::new(state))
     }
 }
 
@@ -103,14 +107,25 @@ where
     type Error = anyhow::Error;
 
     fn try_from(state: &crate::warding::SimulationState<N>) -> Result<Self, Self::Error> {
-        serde_json::to_value(state.nodes.read().iter().map(N::state).collect::<Vec<_>>())
-            .map(OutData::new)
-            .map_err(From::from)
+        todo!()
+        // serde_json::to_value(state.nodes.read().iter().map(N::state).collect::<Vec<_>>())
+        //     .map(OutData::new)
+        //     .map_err(From::from)
     }
 }
 
-pub trait NodeStateRecord {
-    fn get_serialized_state_record(&self) -> SerializedNodeState {
-        SerializedNodeState::Null
+impl ToSeries for OutData {
+    fn to_series(&self) -> Series {
+        let s = match self {
+            OutData::Runtime(runtime) => {
+                let start = runtime.start.timestamp();
+                let end = runtime.end.timestamp();
+                let elapsed = runtime.elapsed.as_secs();
+                format!("start: {}, end: {}, elapsed: {}", start, end, elapsed)
+            }
+            OutData::Settings(settings) => serde_json::to_string(settings).unwrap(),
+            OutData::Data(state) => serde_json::to_string(state).unwrap(),
+        };
+        Series::new("OutData", vec![s])
     }
 }

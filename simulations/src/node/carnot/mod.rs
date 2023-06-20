@@ -9,6 +9,8 @@ use std::hash::Hash;
 use std::{collections::HashMap, time::Duration};
 // crates
 use bls_signatures::PrivateKey;
+use polars::prelude::{DataFrame, NamedFrom};
+use polars::series::Series;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 // internal
@@ -243,7 +245,7 @@ impl<L: UpdateableLeaderSelection, O: Overlay<LeaderSelection = L>> Node for Car
             match event {
                 Event::Proposal { block } => {
                     let current_view = self.engine.current_view();
-                    tracing::info!(
+                    tracing::debug!(
                         node=parse_idx(&self.id),
                         last_committed_view=self.engine.latest_committed_view(),
                         current_view = current_view,
@@ -283,7 +285,7 @@ impl<L: UpdateableLeaderSelection, O: Overlay<LeaderSelection = L>> Node for Car
                 // This branch means we already get enough votes for this block
                 // So we can just call approve_block
                 Event::Approve { block, .. } => {
-                    tracing::info!(
+                    tracing::debug!(
                         node = parse_idx(&self.id),
                         current_view = self.engine.current_view(),
                         block_view = block.view,
@@ -292,7 +294,7 @@ impl<L: UpdateableLeaderSelection, O: Overlay<LeaderSelection = L>> Node for Car
                         "receive approve message"
                     );
                     let (new, out) = self.engine.approve_block(block);
-                    tracing::info!(vote=?out, node=parse_idx(&self.id));
+                    tracing::debug!(vote=?out, node=parse_idx(&self.id));
                     output = vec![Output::Send(out)];
                     self.engine = new;
                 }

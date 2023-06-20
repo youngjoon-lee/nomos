@@ -1,6 +1,6 @@
 use std::{any::Any, io::stdout, sync::Arc};
 
-use super::{Receivers, StreamSettings, Subscriber};
+use super::{polars::ToSeries, Receivers, StreamSettings, Subscriber};
 use crate::output_processors::{RecordType, Runtime};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -55,7 +55,7 @@ pub struct IOSubscriber<R, W = std::io::Stdout> {
 impl<W, R> Subscriber for IOSubscriber<R, W>
 where
     W: std::io::Write + Send + Sync + 'static,
-    R: crate::output_processors::Record + Serialize,
+    R: crate::output_processors::Record + Serialize + ToSeries,
 {
     type Record = R;
     type Settings = IOStreamSettings;

@@ -24,6 +24,7 @@
   "step_time": "100ms",
   "runner_settings": "Sync",
   "stream_settings": {
+	"dump_interval": "1000ms",
     "format": "json"
   },
   "node_count": 3,

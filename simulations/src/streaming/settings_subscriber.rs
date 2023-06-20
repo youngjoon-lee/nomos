@@ -1,4 +1,4 @@
-use super::{Receivers, Subscriber};
+use super::{polars::ToSeries, Receivers, Subscriber};
 use crate::output_processors::{RecordType, Runtime};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -30,7 +30,7 @@ pub struct SettingsSubscriber<R> {
 
 impl<R> Subscriber for SettingsSubscriber<R>
 where
-    R: crate::output_processors::Record + Serialize,
+    R: crate::output_processors::Record + Serialize + ToSeries,
 {
     type Record = R;
 

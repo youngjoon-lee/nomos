@@ -1,4 +1,4 @@
-use super::{Receivers, StreamSettings, Subscriber};
+use super::{polars::ToSeries, Receivers, StreamSettings, Subscriber};
 use crate::output_processors::{RecordType, Runtime};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -42,7 +42,7 @@ pub struct NaiveSubscriber<R> {
 
 impl<R> Subscriber for NaiveSubscriber<R>
 where
-    R: crate::output_processors::Record + Serialize,
+    R: crate::output_processors::Record + Serialize + ToSeries,
 {
     type Record = R;
 

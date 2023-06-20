@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs::File,
     io::Cursor,
+    mem,
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -44,6 +45,7 @@ impl<'de> Deserialize<'de> for PolarsFormat {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolarsSettings {
+    // pub dump_interval: std::time::Duration,
     pub format: PolarsFormat,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<PathBuf>,
@@ -66,21 +68,19 @@ pub struct PolarsSubscriber<R> {
     path: PathBuf,
     format: PolarsFormat,
     recvs: Arc<Receivers<R>>,
+    dump_interval: std::time::Duration,
 }
 
 impl<R> PolarsSubscriber<R>
 where
-    R: Serialize,
+    R: ToSeries,
 {
     fn persist(&self) -> anyhow::Result<()> {
-        let data = self.data.lock();
-        let mut cursor = Cursor::new(Vec::new());
-        serde_json::to_writer(&mut cursor, &*data).expect("Dump data to json ");
-        let mut data = JsonReader::new(cursor)
-            .finish()
-            .expect("Load dataframe from intermediary json");
+        let mut data = self.data.lock();
+        let dump_data = std::mem::take(&mut *data);
 
-        data.unnest(["state"])?;
+        let mut data = dump_data.iter().map(|r| r.to_series()).collect();
+
         match self.format {
             PolarsFormat::Json => dump_dataframe_to_json(&mut data, self.path.as_path()),
             PolarsFormat::Csv => dump_dataframe_to_csv(&mut data, self.path.as_path()),
@@ -91,7 +91,7 @@ where
 
 impl<R> super::Subscriber for PolarsSubscriber<R>
 where
-    R: crate::output_processors::Record + Serialize,
+    R: crate::output_processors::Record + Serialize + ToSeries,
 {
     type Record = R;
     type Settings = PolarsSettings;
@@ -121,6 +121,8 @@ where
                 p
             }),
             format: settings.format,
+            // dump_interval: settings.dump_interval,
+            dump_interval: std::time::Duration::from_secs(1),
         };
         tracing::info!(
             target = "simulation",
@@ -135,6 +137,8 @@ where
     }
 
     fn run(self) -> anyhow::Result<()> {
+        let ticker = crossbeam::channel::tick(self.dump_interval);
+        let mut file_idx = 0;
         loop {
             crossbeam::select! {
                 recv(self.recvs.stop_rx) -> _ => {
@@ -144,6 +148,18 @@ where
                 }
                 recv(self.recvs.recv) -> msg => {
                     self.sink(msg?)?;
+                }
+                recv(ticker) -> _ => {
+                    match self.persist() {
+                        Ok(_) => {
+                            tracing::info!(
+                                target = "simulation",
+                                "persisted intermediary",
+                            );
+                            file_idx += 1;
+                        },
+                        Err(e) => tracing::error!(target = "simulation", "persist error: {}", e),
+                    }
                 }
             }
         }
@@ -178,4 +194,8 @@ fn dump_dataframe_to_parquet(data: &mut DataFrame, out_path: &Path) -> anyhow::R
     let f = File::create(out_path)?;
     let writer = polars::prelude::ParquetWriter::new(f);
     Ok(writer.finish(data).map(|_| ())?)
+}
+
+pub trait ToSeries {
+    fn to_series(&self) -> Series;
 }

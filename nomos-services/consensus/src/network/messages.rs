@@ -23,7 +23,7 @@ impl ProposalChunkMsg {
     }
 }
 
-#[derive(Eq, PartialEq, Hash, Serialize, Deserialize, Clone)]
+#[derive(Debug, Eq, PartialEq, Hash, Serialize, Deserialize, Clone)]
 pub struct VoteMsg {
     pub voter: NodeId,
     pub vote: Vote,

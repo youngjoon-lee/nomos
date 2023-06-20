@@ -40,7 +40,7 @@ impl EventBuilder {
         if engine.highest_voted_view() == -1
             && engine.overlay().is_member_of_leaf_committee(self.id)
         {
-            tracing::info!(node = parse_idx(&self.id), "voting genesis",);
+            tracing::debug!(node = parse_idx(&self.id), "voting genesis",);
             let genesis = engine.genesis_block();
             events.push(Event::Approve {
                 qc: Qc::Standard(StandardQc {
@@ -56,7 +56,7 @@ impl EventBuilder {
             match message {
                 CarnotMessage::Proposal(msg) => {
                     let block = Block::from_bytes(&msg.chunk);
-                    tracing::info!(
+                    tracing::debug!(
                         node=parse_idx(&self.id),
                         current_view = engine.current_view(),
                         block_view=block.header().view,
@@ -102,7 +102,7 @@ impl EventBuilder {
                             .find(|block| block.id == block_id)
                             .cloned()
                         {
-                            tracing::info!(
+                            tracing::debug!(
                                 node=parse_idx(&self.id),
                                 votes=votes.len(),
                                 current_view = engine.current_view(),

@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::output_processors::{Record, RecordType, Runtime};
 
+use self::polars::ToSeries;
+
 pub mod io;
 pub mod naive;
 pub mod polars;
@@ -278,7 +280,7 @@ where
 
 pub trait Subscriber {
     type Settings;
-    type Record: crate::output_processors::Record + Serialize;
+    type Record: crate::output_processors::Record + Serialize + ToSeries;
 
     fn new(
         record_recv: Receiver<Arc<Self::Record>>,

@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::output_processors::Record;
+use crate::streaming::polars::ToSeries;
 // crates
 use crate::streaming::{
     runtime_subscriber::RuntimeSubscriber, settings_subscriber::SettingsSubscriber, StreamProducer,
@@ -189,6 +190,7 @@ where
     N::State: Serialize,
     R: Record
         + serde::Serialize
+        + ToSeries
         + for<'a> TryFrom<&'a SimulationState<N>, Error = anyhow::Error>
         + Send
         + Sync
