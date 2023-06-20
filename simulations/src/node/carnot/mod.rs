@@ -30,7 +30,7 @@ use nomos_consensus::{
     network::messages::{NewViewMsg, TimeoutMsg, VoteMsg},
 };
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct CarnotState {
     current_view: View,
     highest_voted_view: View,

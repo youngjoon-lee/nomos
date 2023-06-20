@@ -1,5 +1,5 @@
 use crate::node::{Node, NodeId};
-use crate::output_processors::Record;
+use crate::output_processors::{OutData, Record};
 use crate::runner::SimulationRunner;
 use crate::warding::SimulationState;
 use crossbeam::channel::bounded;
@@ -55,9 +55,8 @@ where
                             .filter(|n| ids.contains(&n.id()))
                             .for_each(N::step);
 
-                        p.send(R::try_from(
-                            &simulation_state,
-                        )?)?;
+                        let o: Vec<OutData<N::State>> = TryFrom::try_from(&simulation_state)?;
+                        //p.send()?;
                     }
                     // check if any condition makes the simulation stop
                     if inner_runner.check_wards(&simulation_state) {

@@ -1,7 +1,7 @@
 // std
 use anyhow::Ok;
 use serde::Serialize;
-use simulations::node::carnot::CarnotSettings;
+use simulations::node::carnot::{CarnotSettings, CarnotState};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -123,8 +123,12 @@ where
     N::State: Serialize,
 {
     let stream_settings = settings.stream_settings.clone();
-    let runner =
-        SimulationRunner::<_, _, OutData>::new(network, nodes, Default::default(), settings)?;
+    let runner = SimulationRunner::<_, _, OutData<CarnotState>>::new(
+        network,
+        nodes,
+        Default::default(),
+        settings,
+    )?;
 
     let handle = match stream_type {
         Some(StreamType::Naive) => {

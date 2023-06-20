@@ -1,10 +1,12 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use consensus_engine::Overlay;
 use polars::prelude::{NamedFrom, Series};
 use serde::Serialize;
 
-use crate::node::carnot::CarnotState;
+use crate::node::carnot::{CarnotNode, CarnotState};
+use crate::node::Node;
 use crate::settings::SimulationSettings;
 use crate::streaming::polars::ToSeries;
 use crate::warding::SimulationState;
@@ -59,31 +61,34 @@ impl Runtime {
 
 #[derive(Serialize)]
 #[serde(untagged)]
-pub enum OutData {
+pub enum OutData<S> {
     Runtime(Runtime),
     Settings(Box<SimulationSettings>),
-    Data(Box<CarnotState>),
+    Data(Box<S>),
 }
 
-impl From<Runtime> for OutData {
+impl<S> From<Runtime> for OutData<S> {
     fn from(runtime: Runtime) -> Self {
         Self::Runtime(runtime)
     }
 }
 
-impl From<SimulationSettings> for OutData {
+impl<S> From<SimulationSettings> for OutData<S> {
     fn from(settings: SimulationSettings) -> Self {
         Self::Settings(Box::new(settings))
     }
 }
 
-impl From<CarnotState> for OutData {
+impl From<CarnotState> for OutData<CarnotState> {
     fn from(state: CarnotState) -> Self {
         Self::Data(Box::new(state))
     }
 }
 
-impl Record for OutData {
+impl<S> Record for OutData<S>
+where
+    S: Send + Sync + 'static,
+{
     fn record_type(&self) -> RecordType {
         match self {
             Self::Runtime(_) => RecordType::Meta,
@@ -93,38 +98,40 @@ impl Record for OutData {
     }
 }
 
-impl OutData {
-    pub fn new(state: CarnotState) -> Self {
+impl<S> OutData<S> {
+    pub fn new(state: S) -> Self {
         Self::Data(Box::new(state))
     }
 }
 
-impl<N> TryFrom<&SimulationState<N>> for OutData
+impl<N> TryFrom<&SimulationState<N>> for Vec<OutData<N::State>>
 where
-    N: crate::node::Node,
-    N::State: Serialize,
+    N: Node,
+    N::State: Clone,
 {
     type Error = anyhow::Error;
 
     fn try_from(state: &crate::warding::SimulationState<N>) -> Result<Self, Self::Error> {
-        todo!()
-        // serde_json::to_value(state.nodes.read().iter().map(N::state).collect::<Vec<_>>())
-        //     .map(OutData::new)
-        //     .map_err(From::from)
+        Ok(state
+            .nodes
+            .read()
+            .iter()
+            .map(|n| OutData::new(n.state().clone()))
+            .collect())
     }
 }
 
-impl ToSeries for OutData {
+impl ToSeries for OutData<CarnotState> {
     fn to_series(&self) -> Series {
         let s = match self {
             OutData::Runtime(runtime) => {
                 let start = runtime.start.timestamp();
                 let end = runtime.end.timestamp();
                 let elapsed = runtime.elapsed.as_secs();
-                format!("start: {}, end: {}, elapsed: {}", start, end, elapsed)
+                Series::new("time", vec![start, end])
             }
-            OutData::Settings(settings) => serde_json::to_string(settings).unwrap(),
-            OutData::Data(state) => serde_json::to_string(state).unwrap(),
+            OutData::Settings(settings) => Series::new("settings", vec![0]),
+            OutData::Data(state) => Series::new("data", vec![0]),
         };
         Series::new("OutData", vec![s])
     }
