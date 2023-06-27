@@ -564,6 +564,23 @@ mod test {
     }
 
     #[test]
+    fn receive_block_with_qc_higher_than_current_view() {
+        let engine = init_from_genesis();
+
+        let block = Block {
+            id: [1; 32],
+            view: engine.current_view() + 11,
+            parent_qc: Qc::Standard(StandardQc {
+                view: engine.current_view() + 10,
+                id: engine.genesis_block().id,
+            }),
+            leader_proof: LeaderProof::LeaderId { leader_id: [0; 32] },
+        };
+
+        assert!(engine.receive_block(block).is_err());
+    }
+
+    #[test]
     // Ensure that approve_block updates highest_voted_view and returns a correct Send.
     fn approve_block() {
         let mut engine = init_from_genesis();
