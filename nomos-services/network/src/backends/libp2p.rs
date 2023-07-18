@@ -35,7 +35,7 @@ const BUFFER_SIZE: usize = 16;
 #[derive(Debug)]
 pub enum Command {
     Connect(PeerId, Multiaddr),
-    Broadcast { topic: Topic, message: Vec<u8> },
+    Broadcast { topic: Topic, message: Box<[u8]> },
     Subscribe(Topic),
     Unsubscribe(Topic),
 }
