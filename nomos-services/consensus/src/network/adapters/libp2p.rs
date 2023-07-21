@@ -1,15 +1,10 @@
 // std
-use std::borrow::Cow;
-use std::collections::hash_map::DefaultHasher;
-use std::collections::{BTreeMap, BTreeSet};
-use std::hash::{Hash, Hasher};
+use std::collections::{BTreeMap};
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 // crates
-use futures::{Stream, StreamExt};
-use serde::Deserialize;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
+use tokio_stream::wrappers::{ ReceiverStream};
 // internal
 use crate::network::messages::{NewViewMsg, TimeoutMsg, TimeoutQcMsg};
 use crate::network::{
@@ -26,8 +21,6 @@ use overwatch_rs::services::{relay::OutboundRelay, ServiceData};
 const TOPIC: &str = "/carnot/proto";
 // TODO: this could be tailored per message (e.g. we need to store only a few proposals per view but might need a lot of votes)
 const BUFFER_SIZE: usize = 500;
-const APPLICATION_NAME: &str = "CarnotSim";
-const VERSION: usize = 1;
 
 /// Due to network effects, latencies, or other factors, it is possible that a node may receive messages
 /// out of order, or simply messages that are relevant to future views.
@@ -49,12 +42,12 @@ struct MessageCache {
 // buffer messages even if no consumer showed up yet.
 // Lock-free thread safe ring buffer exists but haven't found a good implementation for rust yet so let's just use
 // channels for now.
-struct SPSC<T> {
+struct Spsc<T> {
     sender: Sender<T>,
     receiver: Option<Receiver<T>>,
 }
 
-impl<T> Default for SPSC<T> {
+impl<T> Default for Spsc<T> {
     fn default() -> Self {
         let (sender, receiver) = tokio::sync::mpsc::channel(BUFFER_SIZE);
         Self {
@@ -66,11 +59,11 @@ impl<T> Default for SPSC<T> {
 
 #[derive(Default)]
 struct Messages {
-    proposal_chunks: SPSC<ProposalChunkMsg>,
-    votes: SPSC<VoteMsg>,
-    new_views: SPSC<NewViewMsg>,
-    timeouts: SPSC<TimeoutMsg>,
-    timeout_qcs: SPSC<TimeoutQcMsg>,
+    proposal_chunks: Spsc<ProposalChunkMsg>,
+    votes: Spsc<VoteMsg>,
+    new_views: Spsc<NewViewMsg>,
+    timeouts: Spsc<TimeoutMsg>,
+    timeout_qcs: Spsc<TimeoutQcMsg>,
 }
 
 /// Only the first per-type stream returned by this implementation will actually contain any messages.
@@ -84,10 +77,6 @@ impl MessageCache {
     /// The number of views a node will cache messages for, from current_view to current_view + VIEW_SIZE_LIMIT.
     /// Messages for views outside [current_view, current_view + VIEW_SIZE_LIMIT will be discarded.
     const VIEW_SIZE_LIMIT: View = 5;
-
-    fn current_view(&self) -> View {
-        self.cache.lock().unwrap().keys().min().copied().unwrap()
-    }
 
     // treat view as the current view
     fn advance(mut cache: impl DerefMut<Target = BTreeMap<View, Messages>>, view: View) {
@@ -220,10 +209,10 @@ impl NetworkAdapter for Libp2pAdapter {
     }
 
     async fn broadcast(&self, message: NetworkMessage) {
-        self.broadcast(message.as_bytes(), TOPIC.into()).await;
+        self.broadcast(message.as_bytes(), TOPIC).await;
     }
 
-    async fn timeout_stream(&self, committee: &Committee, view: View) -> BoxedStream<TimeoutMsg> {
+    async fn timeout_stream(&self, _committee: &Committee, view: View) -> BoxedStream<TimeoutMsg> {
         self.message_cache
             .get_timeouts(view)
             .map::<BoxedStream<TimeoutMsg>, _>(|stream| Box::new(ReceiverStream::new(stream)))
@@ -239,9 +228,9 @@ impl NetworkAdapter for Libp2pAdapter {
 
     async fn votes_stream(
         &self,
-        committee: &Committee,
+        _committee: &Committee,
         view: View,
-        proposal_id: BlockId,
+        _proposal_id: BlockId,
     ) -> BoxedStream<VoteMsg> {
         self.message_cache
             .get_votes(view)
@@ -249,14 +238,14 @@ impl NetworkAdapter for Libp2pAdapter {
             .unwrap_or_else(|| Box::new(tokio_stream::empty()))
     }
 
-    async fn new_view_stream(&self, committee: &Committee, view: View) -> BoxedStream<NewViewMsg> {
+    async fn new_view_stream(&self, _committee: &Committee, view: View) -> BoxedStream<NewViewMsg> {
         self.message_cache
             .get_new_views(view)
             .map::<BoxedStream<NewViewMsg>, _>(|stream| Box::new(ReceiverStream::new(stream)))
             .unwrap_or_else(|| Box::new(tokio_stream::empty()))
     }
 
-    async fn send(&self, message: NetworkMessage, committee: &Committee) {
-        self.broadcast(message.as_bytes(), TOPIC.into()).await;
+    async fn send(&self, message: NetworkMessage, _committee: &Committee) {
+        self.broadcast(message.as_bytes(), TOPIC).await;
     }
 }
