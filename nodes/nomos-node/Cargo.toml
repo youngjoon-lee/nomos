@@ -30,6 +30,7 @@ nomos-mempool = { path = "../../nomos-services/mempool", features = [
 nomos-http = { path = "../../nomos-services/http", features = ["http"] }
 nomos-consensus = { path = "../../nomos-services/consensus", features = [
   "waku",
+  "libp2p",
 ] }
 metrics = { path = "../../nomos-services/metrics", optional = true }
 tracing-subscriber = "0.3"
