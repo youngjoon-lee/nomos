@@ -1,8 +1,9 @@
 // std
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 // crates
+use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc::{error::TrySendError, Receiver, Sender};
 use tokio_stream::wrappers::ReceiverStream;
@@ -12,7 +13,8 @@ use crate::network::{
     messages::{NetworkMessage, ProposalChunkMsg, VoteMsg},
     BoxedStream, NetworkAdapter,
 };
-use consensus_engine::{BlockId, Committee, View};
+use consensus_engine::{BlockId, Committee, CommitteeId, View};
+use nomos_core::wire;
 use nomos_network::{
     backends::libp2p::{Command, Event, EventKind, Libp2p},
     NetworkMsg, NetworkService,
@@ -93,9 +95,9 @@ impl<T> Spsc<T> {
 #[derive(Default)]
 struct Messages {
     proposal_chunks: Spsc<ProposalChunkMsg>,
-    votes: Spsc<VoteMsg>,
-    new_views: Spsc<NewViewMsg>,
-    timeouts: Spsc<TimeoutMsg>,
+    votes: HashMap<CommitteeId, HashMap<BlockId, Spsc<VoteMsg>>>,
+    new_views: HashMap<CommitteeId, Spsc<NewViewMsg>>,
+    timeouts: HashMap<CommitteeId, Spsc<TimeoutMsg>>,
     timeout_qcs: Spsc<TimeoutQcMsg>,
 }
 
@@ -148,37 +150,58 @@ impl MessageCache {
         res
     }
 
-    fn get_votes(&self, view: View) -> Option<Receiver<VoteMsg>> {
-        self.cache
-            .lock()
-            .unwrap()
-            .get_mut(&view)
-            .map(|m| m.votes.recv_or_restore())
+    fn get_votes(
+        &self,
+        view: View,
+        committee_id: CommitteeId,
+        proposal_id: BlockId,
+    ) -> Option<Receiver<VoteMsg>> {
+        self.cache.lock().unwrap().get_mut(&view).and_then(|m| {
+            m.votes.get_mut(&committee_id).and_then(|spscs| {
+                spscs
+                    .get_mut(&proposal_id)
+                    .map(|spsc| spsc.recv_or_restore())
+            })
+        })
     }
 
-    fn get_new_views(&self, view: View) -> Option<Receiver<NewViewMsg>> {
-        self.cache
-            .lock()
-            .unwrap()
-            .get_mut(&view)
-            .map(|m| m.new_views.recv_or_restore())
+    fn get_new_views(&self, view: View, committee_id: CommitteeId) -> Option<Receiver<NewViewMsg>> {
+        self.cache.lock().unwrap().get_mut(&view).and_then(|m| {
+            m.new_views
+                .get_mut(&committee_id)
+                .map(|spsc| spsc.recv_or_restore())
+        })
     }
 
-    fn get_timeouts(&self, view: View) -> Option<Receiver<TimeoutMsg>> {
-        self.cache
-            .lock()
-            .unwrap()
-            .get_mut(&view)
-            .map(|m| m.timeouts.recv_or_restore())
+    fn get_timeouts(&self, view: View, committee_id: CommitteeId) -> Option<Receiver<TimeoutMsg>> {
+        self.cache.lock().unwrap().get_mut(&view).and_then(|m| {
+            m.timeouts
+                .get_mut(&committee_id)
+                .map(|spsc| spsc.recv_or_restore())
+        })
+    }
+}
+
+/// A message published via libp2p gossipsub.
+/// If `to` is [`None`], it means that the `message` is propagated to all committees.
+#[derive(Serialize, Deserialize)]
+struct GossipsubMessage {
+    to: Option<CommitteeId>,
+    message: NetworkMessage,
+}
+
+impl GossipsubMessage {
+    pub fn as_bytes(&self) -> Box<[u8]> {
+        wire::serialize(self).unwrap().into_boxed_slice()
     }
 }
 
 impl Libp2pAdapter {
-    async fn broadcast(&self, message: Box<[u8]>, topic: &str) {
+    async fn broadcast(&self, message: GossipsubMessage, topic: &str) {
         if let Err((e, message)) = self
             .network_relay
             .send(NetworkMsg::Process(Command::Broadcast {
-                message,
+                message: message.as_bytes(),
                 topic: topic.into(),
             }))
             .await
@@ -222,31 +245,36 @@ impl NetworkAdapter for Libp2pAdapter {
             let mut incoming_messages = receiver.await.unwrap();
             loop {
                 match incoming_messages.recv().await {
-                    Ok(event) => match event {
-                        Event::Message(message) => {
-                            match nomos_core::wire::deserialize(&message.data) {
-                                Ok(NetworkMessage::ProposalChunk(msg)) => {
+                    Ok(Event::Message(message)) => {
+                        match nomos_core::wire::deserialize(&message.data) {
+                            Ok(GossipsubMessage { to, message }) => match message {
+                                NetworkMessage::ProposalChunk(msg) => {
                                     tracing::debug!("received proposal chunk");
                                     let mut cache = cache.cache.lock().unwrap();
                                     let view = msg.view;
                                     if let Some(messages) = cache.get_mut(&view) {
                                         messages.proposal_chunks.try_send(msg);
                                     }
-                                    drop(cache);
                                 }
-                                Ok(NetworkMessage::Vote(msg)) => {
+                                NetworkMessage::Vote(msg) => {
                                     tracing::debug!("received vote");
                                     let mut cache = cache.cache.lock().unwrap();
                                     let view = msg.vote.view;
                                     if let Some(messages) = cache.get_mut(&view) {
-                                        messages.votes.try_send(msg);
+                                        messages
+                                            .votes
+                                            .entry(to.unwrap())
+                                            .or_default()
+                                            .entry(msg.vote.block)
+                                            .or_default()
+                                            .try_send(msg);
                                     }
-                                    drop(cache);
                                 }
                                 _ => tracing::debug!("unrecognized message"),
-                            }
+                            },
+                            _ => tracing::debug!("unrecognized gossipsub message"),
                         }
-                    },
+                    }
                     Err(RecvError::Lagged(n)) => {
                         tracing::error!("lagged messages: {n}")
                     }
@@ -268,12 +296,13 @@ impl NetworkAdapter for Libp2pAdapter {
     }
 
     async fn broadcast(&self, message: NetworkMessage) {
-        self.broadcast(message.as_bytes(), TOPIC).await;
+        let message = GossipsubMessage { to: None, message };
+        self.broadcast(message, TOPIC).await;
     }
 
-    async fn timeout_stream(&self, _committee: &Committee, view: View) -> BoxedStream<TimeoutMsg> {
+    async fn timeout_stream(&self, committee: &Committee, view: View) -> BoxedStream<TimeoutMsg> {
         self.message_cache
-            .get_timeouts(view)
+            .get_timeouts(view, committee.id::<blake2::Blake2s256>())
             .map::<BoxedStream<TimeoutMsg>, _>(|stream| Box::new(ReceiverStream::new(stream)))
             .unwrap_or_else(|| Box::new(tokio_stream::empty()))
     }
@@ -287,26 +316,30 @@ impl NetworkAdapter for Libp2pAdapter {
 
     async fn votes_stream(
         &self,
-        _committee: &Committee,
+        committee: &Committee,
         view: View,
-        _proposal_id: BlockId,
+        proposal_id: BlockId,
     ) -> BoxedStream<VoteMsg> {
         let cache = self.message_cache.cache.lock().unwrap();
         drop(cache);
         self.message_cache
-            .get_votes(view)
+            .get_votes(view, committee.id::<blake2::Blake2s256>(), proposal_id)
             .map::<BoxedStream<VoteMsg>, _>(|stream| Box::new(ReceiverStream::new(stream)))
             .unwrap_or_else(|| Box::new(tokio_stream::empty()))
     }
 
-    async fn new_view_stream(&self, _committee: &Committee, view: View) -> BoxedStream<NewViewMsg> {
+    async fn new_view_stream(&self, committee: &Committee, view: View) -> BoxedStream<NewViewMsg> {
         self.message_cache
-            .get_new_views(view)
+            .get_new_views(view, committee.id::<blake2::Blake2s256>())
             .map::<BoxedStream<NewViewMsg>, _>(|stream| Box::new(ReceiverStream::new(stream)))
             .unwrap_or_else(|| Box::new(tokio_stream::empty()))
     }
 
-    async fn send(&self, message: NetworkMessage, _committee: &Committee) {
-        self.broadcast(message.as_bytes(), TOPIC).await;
+    async fn send(&self, message: NetworkMessage, committee: &Committee) {
+        let message = GossipsubMessage {
+            to: Some(committee.id::<blake2::Blake2s256>()),
+            message,
+        };
+        self.broadcast(message, TOPIC).await;
     }
 }
