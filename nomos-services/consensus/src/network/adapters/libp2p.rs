@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 // crates
+use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc::{error::TrySendError, Receiver, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 // internal
@@ -44,6 +45,7 @@ struct MessageCache {
 // buffer messages even if no consumer showed up yet.
 // Lock-free thread safe ring buffer exists but haven't found a good implementation for rust yet so let's just use
 // channels for now.
+// TODO: replace with vec + notify / wait mechanism
 struct Spsc<T> {
     sender: Sender<T>,
     receiver: Option<Receiver<T>>,
@@ -107,7 +109,7 @@ pub struct Libp2pAdapter {
 
 impl MessageCache {
     /// The number of views a node will cache messages for, from current_view to current_view + VIEW_SIZE_LIMIT.
-    /// Messages for views outside [current_view, current_view + VIEW_SIZE_LIMIT will be discarded.
+    /// Messages for views outside [current_view, current_view + VIEW_SIZE_LIMIT] will be discarded.
     const VIEW_SIZE_LIMIT: View = 5;
 
     fn new() -> Self {
@@ -218,29 +220,37 @@ impl NetworkAdapter for Libp2pAdapter {
             }
 
             let mut incoming_messages = receiver.await.unwrap();
-            while let Ok(event) = incoming_messages.recv().await {
-                match event {
-                    Event::Message(message) => match nomos_core::wire::deserialize(&message.data) {
-                        Ok(NetworkMessage::ProposalChunk(msg)) => {
-                            tracing::debug!("received proposal chunk");
-                            let mut cache = cache.cache.lock().unwrap();
-                            let view = msg.view;
-                            if let Some(messages) = cache.get_mut(&view) {
-                                messages.proposal_chunks.try_send(msg);
+            loop {
+                match incoming_messages.recv().await {
+                    Ok(event) => match event {
+                        Event::Message(message) => {
+                            match nomos_core::wire::deserialize(&message.data) {
+                                Ok(NetworkMessage::ProposalChunk(msg)) => {
+                                    tracing::debug!("received proposal chunk");
+                                    let mut cache = cache.cache.lock().unwrap();
+                                    let view = msg.view;
+                                    if let Some(messages) = cache.get_mut(&view) {
+                                        messages.proposal_chunks.try_send(msg);
+                                    }
+                                    drop(cache);
+                                }
+                                Ok(NetworkMessage::Vote(msg)) => {
+                                    tracing::debug!("received vote");
+                                    let mut cache = cache.cache.lock().unwrap();
+                                    let view = msg.vote.view;
+                                    if let Some(messages) = cache.get_mut(&view) {
+                                        messages.votes.try_send(msg);
+                                    }
+                                    drop(cache);
+                                }
+                                _ => tracing::debug!("unrecognized message"),
                             }
-                            drop(cache);
                         }
-                        Ok(NetworkMessage::Vote(msg)) => {
-                            tracing::debug!("received vote");
-                            let mut cache = cache.cache.lock().unwrap();
-                            let view = msg.vote.view;
-                            if let Some(messages) = cache.get_mut(&view) {
-                                messages.votes.try_send(msg);
-                            }
-                            drop(cache);
-                        }
-                        _ => tracing::debug!("unrecognized message"),
                     },
+                    Err(RecvError::Lagged(n)) => {
+                        tracing::error!("lagged messages: {n}")
+                    }
+                    Err(RecvError::Closed) => unreachable!(),
                 }
             }
         });
