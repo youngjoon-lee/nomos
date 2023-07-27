@@ -1,14 +1,19 @@
+// std
+use std::error::Error;
+// internal
+use super::NetworkBackend;
 use nomos_libp2p::{
     libp2p::{
-        gossipsub::{self, Message},
+        gossipsub::{self, Message, TopicHash},
         Multiaddr, PeerId,
     },
     BehaviourEvent, Swarm, SwarmConfig, SwarmEvent,
 };
-use overwatch_rs::{overwatch::handle::OverwatchHandle, services::state::NoState};
-use tokio::sync::{broadcast, mpsc};
 
-use super::NetworkBackend;
+// crates
+use overwatch_rs::{overwatch::handle::OverwatchHandle, services::state::NoState};
+use serde::{Deserialize, Serialize};
+use tokio::sync::{broadcast, mpsc, oneshot};
 
 macro_rules! log_error {
     ($e:expr) => {
@@ -23,12 +28,18 @@ pub struct Libp2p {
     commands_tx: mpsc::Sender<Command>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Libp2pInfo {
+    pub listen_addresses: Vec<Multiaddr>,
+    pub n_peers: usize,
+    pub n_connections: u32,
+    pub n_pending: u32,
+}
+
 #[derive(Debug)]
 pub enum EventKind {
     Message,
 }
-use std::error::Error;
-use tokio::sync::oneshot;
 
 const BUFFER_SIZE: usize = 16;
 
@@ -38,6 +49,7 @@ pub enum Command {
     Broadcast { topic: Topic, message: Box<[u8]> },
     Subscribe(Topic),
     Unsubscribe(Topic),
+    Info { reply: oneshot::Sender<Libp2pInfo> },
 }
 
 pub type Topic = String;
@@ -76,7 +88,7 @@ impl NetworkBackend for Libp2p {
                                 message_id: id,
                                 message,
                             })) => {
-                                tracing::debug!("Got message with id: {id} from peer: {peer_id}");
+                                tracing::debug!("Got message {message:?} with id: {id} from peer: {peer_id}");
                                 log_error!(events_tx.send(Event::Message(message)));
                             }
                             SwarmEvent::ConnectionEstablished {
@@ -112,7 +124,7 @@ impl NetworkBackend for Libp2p {
                                 log_error!(swarm.connect(peer_id, peer_addr));
                             }
                             Command::Broadcast { topic, message } => {
-                                match swarm.broadcast(&topic, message) {
+                                match swarm.broadcast(&topic, message.clone()) {
                                     Ok(id) => {
                                         tracing::debug!("broadcasted message with id: {id} tp topic: {topic}");
                                     }
@@ -120,6 +132,12 @@ impl NetworkBackend for Libp2p {
                                         tracing::error!("failed to broadcast message to topic: {topic} {e:?}");
                                     }
                                 }
+                                events_tx.send(Event::Message(Message {
+                                    source: None,
+                                    data: message.into(),
+                                    sequence_number: None,
+                                    topic: TopicHash::from_raw(topic)
+                                })).unwrap();
                             }
                             Command::Subscribe(topic) => {
                                 tracing::debug!("subscribing to topic: {topic}");
@@ -128,6 +146,18 @@ impl NetworkBackend for Libp2p {
                             Command::Unsubscribe(topic) => {
                                 tracing::debug!("unsubscribing to topic: {topic}");
                                 log_error!(swarm.unsubscribe(&topic));
+                            }
+                            Command::Info { reply } => {
+                                let swarm = swarm.swarm();
+                                let network_info = swarm.network_info();
+                                let counters = network_info.connection_counters();
+                                let info = Libp2pInfo {
+                                    listen_addresses: swarm.listeners().cloned().collect(),
+                                    n_peers: network_info.num_peers(),
+                                    n_connections: counters.num_connections(),
+                                    n_pending: counters.num_pending(),
+                                };
+                                log_error!(reply.send(info));
                             }
                         };
                     }
