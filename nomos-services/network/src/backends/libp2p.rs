@@ -41,7 +41,7 @@ pub enum EventKind {
     Message,
 }
 
-const BUFFER_SIZE: usize = 16;
+const BUFFER_SIZE: usize = 64;
 
 #[derive(Debug)]
 pub enum Command {
