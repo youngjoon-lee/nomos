@@ -1,10 +1,10 @@
 // std
-use std::collections::{BTreeMap};
+use std::collections::BTreeMap;
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 // crates
-use tokio::sync::mpsc::{Receiver, Sender};
-use tokio_stream::wrappers::{ ReceiverStream};
+use tokio::sync::mpsc::{error::TrySendError, Receiver, Sender};
+use tokio_stream::wrappers::ReceiverStream;
 // internal
 use crate::network::messages::{NewViewMsg, TimeoutMsg, TimeoutQcMsg};
 use crate::network::{
@@ -21,6 +21,8 @@ use overwatch_rs::services::{relay::OutboundRelay, ServiceData};
 const TOPIC: &str = "/carnot/proto";
 // TODO: this could be tailored per message (e.g. we need to store only a few proposals per view but might need a lot of votes)
 const BUFFER_SIZE: usize = 500;
+
+type Relay<T> = OutboundRelay<<NetworkService<T> as ServiceData>::Message>;
 
 /// Due to network effects, latencies, or other factors, it is possible that a node may receive messages
 /// out of order, or simply messages that are relevant to future views.
@@ -57,6 +59,35 @@ impl<T> Default for Spsc<T> {
     }
 }
 
+impl<T> Spsc<T> {
+    fn recv_or_restore(&mut self) -> Receiver<T> {
+        match self.receiver.take() {
+            Some(recv) => recv,
+            None => {
+                // somebody already requested the receiver, let's create a new channel
+                let (sender, receiver) = tokio::sync::mpsc::channel(BUFFER_SIZE);
+                self.sender = sender;
+                receiver
+            }
+        }
+    }
+
+    fn try_send(&mut self, message: T) {
+        match self.sender.try_send(message) {
+            Ok(()) => {}
+            Err(TrySendError::Closed(message)) => {
+                let (sender, receiver) = tokio::sync::mpsc::channel(BUFFER_SIZE);
+                self.sender = sender;
+                self.receiver = Some(receiver);
+                self.sender
+                    .try_send(message)
+                    .expect("new channel should be empty");
+            }
+            Err(TrySendError::Full(_)) => tracing::error!("full channel, dropping message"),
+        }
+    }
+}
+
 #[derive(Default)]
 struct Messages {
     proposal_chunks: Spsc<ProposalChunkMsg>,
@@ -66,8 +97,9 @@ struct Messages {
     timeout_qcs: Spsc<TimeoutQcMsg>,
 }
 
-/// Only the first per-type stream returned by this implementation will actually contain any messages.
+/// Requesting the same stream type multiple times will re-initialize it and new items will only be forwarded to the latest one.
 /// It's required for the consumer to keep the stream around for the time it's necessary
+#[derive(Clone)]
 pub struct Libp2pAdapter {
     network_relay: OutboundRelay<<NetworkService<Libp2p> as ServiceData>::Message>,
     message_cache: MessageCache,
@@ -78,10 +110,19 @@ impl MessageCache {
     /// Messages for views outside [current_view, current_view + VIEW_SIZE_LIMIT will be discarded.
     const VIEW_SIZE_LIMIT: View = 5;
 
+    fn new() -> Self {
+        let cache = (0..Self::VIEW_SIZE_LIMIT)
+            .map(|v| (v, Default::default()))
+            .collect::<BTreeMap<View, Messages>>();
+        Self {
+            cache: Arc::new(Mutex::new(cache)),
+        }
+    }
+
     // treat view as the current view
     fn advance(mut cache: impl DerefMut<Target = BTreeMap<View, Messages>>, view: View) {
         if cache.remove(&(view - 1)).is_some() {
-            cache.insert(view + Self::VIEW_SIZE_LIMIT, Messages::default());
+            cache.insert(view + Self::VIEW_SIZE_LIMIT - 1, Messages::default());
         }
     }
 
@@ -90,7 +131,7 @@ impl MessageCache {
         let mut cache = self.cache.lock().unwrap();
         let res = cache
             .get_mut(&view)
-            .and_then(|m| m.proposal_chunks.receiver.take());
+            .map(|m| m.proposal_chunks.recv_or_restore());
         Self::advance(cache, view - 1);
         res
     }
@@ -100,7 +141,7 @@ impl MessageCache {
         let mut cache = self.cache.lock().unwrap();
         let res = cache
             .get_mut(&view)
-            .and_then(|m| m.timeout_qcs.receiver.take());
+            .map(|m| m.timeout_qcs.recv_or_restore());
         Self::advance(cache, view);
         res
     }
@@ -110,7 +151,7 @@ impl MessageCache {
             .lock()
             .unwrap()
             .get_mut(&view)
-            .and_then(|m| m.votes.receiver.take())
+            .map(|m| m.votes.recv_or_restore())
     }
 
     fn get_new_views(&self, view: View) -> Option<Receiver<NewViewMsg>> {
@@ -118,7 +159,7 @@ impl MessageCache {
             .lock()
             .unwrap()
             .get_mut(&view)
-            .and_then(|m| m.new_views.receiver.take())
+            .map(|m| m.new_views.recv_or_restore())
     }
 
     fn get_timeouts(&self, view: View) -> Option<Receiver<TimeoutMsg>> {
@@ -126,7 +167,7 @@ impl MessageCache {
             .lock()
             .unwrap()
             .get_mut(&view)
-            .and_then(|m| m.timeouts.receiver.take())
+            .map(|m| m.timeouts.recv_or_restore())
     }
 }
 
@@ -143,23 +184,28 @@ impl Libp2pAdapter {
             tracing::error!("error broadcasting {message:?}: {e}");
         };
     }
+
+    async fn subscribe(relay: &Relay<Libp2p>, topic: &str) {
+        if let Err((e, _)) = relay
+            .send(NetworkMsg::Process(Command::Subscribe(topic.into())))
+            .await
+        {
+            tracing::error!("error subscribing to {topic}: {e}");
+        };
+    }
 }
 
 #[async_trait::async_trait]
 impl NetworkAdapter for Libp2pAdapter {
     type Backend = Libp2p;
 
-    async fn new(
-        network_relay: OutboundRelay<<NetworkService<Self::Backend> as ServiceData>::Message>,
-    ) -> Self {
-        let message_cache = MessageCache {
-            cache: Default::default(),
-        };
+    async fn new(network_relay: Relay<Libp2p>) -> Self {
+        let message_cache = MessageCache::new();
         let cache = message_cache.clone();
         let relay = network_relay.clone();
         // TODO: maybe we need the runtime handle here?
         tokio::spawn(async move {
-            // TODO: subscribe to some topic
+            Self::subscribe(&relay, TOPIC).await;
             let (sender, receiver) = tokio::sync::oneshot::channel();
             if let Err((e, _)) = relay
                 .send(NetworkMsg::Subscribe {
@@ -170,6 +216,7 @@ impl NetworkAdapter for Libp2pAdapter {
             {
                 tracing::error!("error subscribing to incoming messages: {e}");
             }
+
             let mut incoming_messages = receiver.await.unwrap();
             while let Ok(event) = incoming_messages.recv().await {
                 match event {
@@ -177,18 +224,20 @@ impl NetworkAdapter for Libp2pAdapter {
                         Ok(NetworkMessage::ProposalChunk(msg)) => {
                             tracing::debug!("received proposal chunk");
                             let mut cache = cache.cache.lock().unwrap();
-                            let view = cache.keys().min().copied().unwrap();
+                            let view = msg.view;
                             if let Some(messages) = cache.get_mut(&view) {
-                                messages.proposal_chunks.sender.try_send(msg).unwrap();
+                                messages.proposal_chunks.try_send(msg);
                             }
+                            drop(cache);
                         }
                         Ok(NetworkMessage::Vote(msg)) => {
                             tracing::debug!("received vote");
                             let mut cache = cache.cache.lock().unwrap();
-                            let view = cache.keys().min().copied().unwrap();
+                            let view = msg.vote.view;
                             if let Some(messages) = cache.get_mut(&view) {
-                                messages.votes.sender.try_send(msg).unwrap();
+                                messages.votes.try_send(msg);
                             }
+                            drop(cache);
                         }
                         _ => tracing::debug!("unrecognized message"),
                     },
@@ -232,6 +281,8 @@ impl NetworkAdapter for Libp2pAdapter {
         view: View,
         _proposal_id: BlockId,
     ) -> BoxedStream<VoteMsg> {
+        let cache = self.message_cache.cache.lock().unwrap();
+        drop(cache);
         self.message_cache
             .get_votes(view)
             .map::<BoxedStream<VoteMsg>, _>(|stream| Box::new(ReceiverStream::new(stream)))
