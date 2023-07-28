@@ -1,10 +1,15 @@
 // std
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
+use std::marker::PhantomData;
 use std::ops::DerefMut;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll, Waker};
 // crates
+use futures::Stream;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc::{error::TrySendError, Receiver, Sender};
+use tokio::sync::Notify;
 use tokio_stream::wrappers::ReceiverStream;
 // internal
 use crate::network::messages::{NewViewMsg, TimeoutMsg, TimeoutQcMsg};
@@ -25,6 +30,35 @@ const BUFFER_SIZE: usize = 500;
 
 type Relay<T> = OutboundRelay<<NetworkService<T> as ServiceData>::Message>;
 
+macro_rules! make_stream {
+    ($name:ident, $field:ident, $type:ty) => {
+        pub struct $name {
+            cache: Arc<Mutex<BTreeMap<View, Messages>>>,
+            view: View,
+            filter: Box<dyn Fn(&$type) -> bool + Send + Sync>,
+        }
+
+        impl Stream for $name {
+            type Item = $type;
+
+            fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+                let mut cache = self.cache.lock().unwrap();
+                match cache.get_mut(&self.view) {
+                    Some(messages) => {
+                        if let Some(idx) = messages.$field.buffer.iter().position(&self.filter) {
+                            return Poll::Ready(messages.$field.buffer.swap_remove_front(idx));
+                        }
+                        messages.$field.wakers.push(cx.waker().clone());
+                        drop(cache);
+                        Poll::Pending
+                    }
+                    None => Poll::Ready(None),
+                }
+            }
+        }
+    };
+}
+
 /// Due to network effects, latencies, or other factors, it is possible that a node may receive messages
 /// out of order, or simply messages that are relevant to future views.
 /// Since the implementation only starts listening for a message when it is needed, we need to store
@@ -41,54 +75,36 @@ struct MessageCache {
     cache: Arc<Mutex<BTreeMap<View, Messages>>>,
 }
 
-// This is essentially a synchronization for a single consumer/single producer where the producer must be able to
-// buffer messages even if no consumer showed up yet.
-// Lock-free thread safe ring buffer exists but haven't found a good implementation for rust yet so let's just use
-// channels for now.
-// TODO: replace with vec + notify / wait mechanism
+enum MessageKind {
+    Votes,
+    ProposalChunks,
+}
+
 struct Spsc<T> {
-    sender: Sender<T>,
-    receiver: Option<Receiver<T>>,
+    buffer: VecDeque<T>,
+    wakers: Vec<Waker>,
+}
+
+impl<T> Spsc<T> {
+    fn insert(&mut self, t: T) {
+        self.buffer.push_back(t);
+        for waker in self.wakers.drain(..) {
+            waker.wake();
+        }
+    }
 }
 
 impl<T> Default for Spsc<T> {
     fn default() -> Self {
-        let (sender, receiver) = tokio::sync::mpsc::channel(BUFFER_SIZE);
         Self {
-            sender,
-            receiver: Some(receiver),
+            buffer: VecDeque::with_capacity(BUFFER_SIZE),
+            wakers: Vec::new(),
         }
     }
 }
 
-impl<T> Spsc<T> {
-    fn recv_or_restore(&mut self) -> Receiver<T> {
-        match self.receiver.take() {
-            Some(recv) => recv,
-            None => {
-                // somebody already requested the receiver, let's create a new channel
-                let (sender, receiver) = tokio::sync::mpsc::channel(BUFFER_SIZE);
-                self.sender = sender;
-                receiver
-            }
-        }
-    }
-
-    fn try_send(&mut self, message: T) {
-        match self.sender.try_send(message) {
-            Ok(()) => {}
-            Err(TrySendError::Closed(message)) => {
-                let (sender, receiver) = tokio::sync::mpsc::channel(BUFFER_SIZE);
-                self.sender = sender;
-                self.receiver = Some(receiver);
-                self.sender
-                    .try_send(message)
-                    .expect("new channel should be empty");
-            }
-            Err(TrySendError::Full(_)) => tracing::error!("full channel, dropping message"),
-        }
-    }
-}
+make_stream!(VotesMessageStream, votes, VoteMsg);
+make_stream!(ProposalMessageStream, proposal_chunks, ProposalChunkMsg);
 
 #[derive(Default)]
 struct Messages {
@@ -99,8 +115,6 @@ struct Messages {
     timeout_qcs: Spsc<TimeoutQcMsg>,
 }
 
-/// Requesting the same stream type multiple times will re-initialize it and new items will only be forwarded to the latest one.
-/// It's required for the consumer to keep the stream around for the time it's necessary
 #[derive(Clone)]
 pub struct Libp2pAdapter {
     network_relay: OutboundRelay<<NetworkService<Libp2p> as ServiceData>::Message>,
@@ -129,47 +143,35 @@ impl MessageCache {
     }
 
     // This will also advance the cache to use view - 1 as the current view
-    fn get_proposals(&self, view: View) -> Option<Receiver<ProposalChunkMsg>> {
+    fn get_proposals(&self, view: View) -> ProposalMessageStream {
         let mut cache = self.cache.lock().unwrap();
-        let res = cache
-            .get_mut(&view)
-            .map(|m| m.proposal_chunks.recv_or_restore());
         Self::advance(cache, view - 1);
-        res
+        ProposalMessageStream {
+            cache: self.cache.clone(),
+            view,
+            filter: Box::new(|_: &ProposalChunkMsg| true),
+        }
     }
 
     // This will also advance the cache to use view as the current view
     fn get_timeout_qcs(&self, view: View) -> Option<Receiver<TimeoutQcMsg>> {
-        let mut cache = self.cache.lock().unwrap();
-        let res = cache
-            .get_mut(&view)
-            .map(|m| m.timeout_qcs.recv_or_restore());
-        Self::advance(cache, view);
-        res
+        None
     }
 
-    fn get_votes(&self, view: View) -> Option<Receiver<VoteMsg>> {
-        self.cache
-            .lock()
-            .unwrap()
-            .get_mut(&view)
-            .map(|m| m.votes.recv_or_restore())
+    fn get_votes(&self, view: View) -> VotesMessageStream {
+        VotesMessageStream {
+            cache: self.cache.clone(),
+            view,
+            filter: Box::new(|_: &VoteMsg| true),
+        }
     }
 
     fn get_new_views(&self, view: View) -> Option<Receiver<NewViewMsg>> {
-        self.cache
-            .lock()
-            .unwrap()
-            .get_mut(&view)
-            .map(|m| m.new_views.recv_or_restore())
+        None
     }
 
     fn get_timeouts(&self, view: View) -> Option<Receiver<TimeoutMsg>> {
-        self.cache
-            .lock()
-            .unwrap()
-            .get_mut(&view)
-            .map(|m| m.timeouts.recv_or_restore())
+        None
     }
 }
 
@@ -230,7 +232,7 @@ impl NetworkAdapter for Libp2pAdapter {
                                     let mut cache = cache.cache.lock().unwrap();
                                     let view = msg.view;
                                     if let Some(messages) = cache.get_mut(&view) {
-                                        messages.proposal_chunks.try_send(msg);
+                                        messages.proposal_chunks.insert(msg);
                                     }
                                     drop(cache);
                                 }
@@ -239,7 +241,7 @@ impl NetworkAdapter for Libp2pAdapter {
                                     let mut cache = cache.cache.lock().unwrap();
                                     let view = msg.vote.view;
                                     if let Some(messages) = cache.get_mut(&view) {
-                                        messages.votes.try_send(msg);
+                                        messages.votes.insert(msg);
                                     }
                                     drop(cache);
                                 }
@@ -261,10 +263,7 @@ impl NetworkAdapter for Libp2pAdapter {
     }
 
     async fn proposal_chunks_stream(&self, view: View) -> BoxedStream<ProposalChunkMsg> {
-        self.message_cache
-            .get_proposals(view)
-            .map::<BoxedStream<ProposalChunkMsg>, _>(|stream| Box::new(ReceiverStream::new(stream)))
-            .unwrap_or_else(|| Box::new(tokio_stream::empty()))
+        Box::new(self.message_cache.get_proposals(view))
     }
 
     async fn broadcast(&self, message: NetworkMessage) {
@@ -275,7 +274,7 @@ impl NetworkAdapter for Libp2pAdapter {
         self.message_cache
             .get_timeouts(view)
             .map::<BoxedStream<TimeoutMsg>, _>(|stream| Box::new(ReceiverStream::new(stream)))
-            .unwrap_or_else(|| Box::new(tokio_stream::empty()))
+            .unwrap_or_else(|| Box::new(tokio_stream::pending()))
     }
 
     async fn timeout_qc_stream(&self, view: View) -> BoxedStream<TimeoutQcMsg> {
@@ -291,12 +290,7 @@ impl NetworkAdapter for Libp2pAdapter {
         view: View,
         _proposal_id: BlockId,
     ) -> BoxedStream<VoteMsg> {
-        let cache = self.message_cache.cache.lock().unwrap();
-        drop(cache);
-        self.message_cache
-            .get_votes(view)
-            .map::<BoxedStream<VoteMsg>, _>(|stream| Box::new(ReceiverStream::new(stream)))
-            .unwrap_or_else(|| Box::new(tokio_stream::empty()))
+        Box::new(self.message_cache.get_votes(view))
     }
 
     async fn new_view_stream(&self, _committee: &Committee, view: View) -> BoxedStream<NewViewMsg> {
