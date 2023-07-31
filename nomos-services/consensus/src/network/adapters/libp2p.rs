@@ -286,9 +286,35 @@ impl NetworkAdapter for Libp2pAdapter {
                                         }
                                         drop(cache);
                                     }
-                                    _ => tracing::debug!("unrecognized message"),
+                                    NetworkMessage::Timeout(msg) => {
+                                        tracing::debug!("received timeout");
+                                        let mut cache = cache.cache.lock().unwrap();
+                                        let view = msg.vote.view;
+                                        if let Some(messages) = cache.get_mut(&view) {
+                                            messages.timeouts.insert(to, msg);
+                                        }
+                                        drop(cache);
+                                    }
+                                    NetworkMessage::TimeoutQc(msg) => {
+                                        tracing::debug!("received timeout_qc");
+                                        let mut cache = cache.cache.lock().unwrap();
+                                        let view = msg.qc.view();
+                                        if let Some(messages) = cache.get_mut(&view) {
+                                            messages.timeout_qcs.insert(to, msg);
+                                        }
+                                        drop(cache);
+                                    }
+                                    NetworkMessage::NewView(msg) => {
+                                        tracing::debug!("received new_view");
+                                        let mut cache = cache.cache.lock().unwrap();
+                                        let view = msg.vote.view;
+                                        if let Some(messages) = cache.get_mut(&view) {
+                                            messages.new_views.insert(to, msg);
+                                        }
+                                        drop(cache);
+                                    }
                                 },
-                                _ => tracing::debug!("unrecognized gossipsub message"),
+                                _ => tracing::error!("unrecognized gossipsub message"),
                             }
                         }
                     },
