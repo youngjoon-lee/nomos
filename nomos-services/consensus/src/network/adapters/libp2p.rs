@@ -156,28 +156,31 @@ impl MessageCache {
         committee_id: CommitteeId,
         proposal_id: BlockId,
     ) -> Option<Receiver<VoteMsg>> {
-        self.cache.lock().unwrap().get_mut(&view).and_then(|m| {
-            m.votes.get_mut(&committee_id).and_then(|spscs| {
-                spscs
-                    .get_mut(&proposal_id)
-                    .map(|spsc| spsc.recv_or_restore())
-            })
+        self.cache.lock().unwrap().get_mut(&view).map(|m| {
+            m.votes
+                .entry(committee_id)
+                .or_default()
+                .entry(proposal_id)
+                .or_default()
+                .recv_or_restore()
         })
     }
 
     fn get_new_views(&self, view: View, committee_id: CommitteeId) -> Option<Receiver<NewViewMsg>> {
-        self.cache.lock().unwrap().get_mut(&view).and_then(|m| {
+        self.cache.lock().unwrap().get_mut(&view).map(|m| {
             m.new_views
-                .get_mut(&committee_id)
-                .map(|spsc| spsc.recv_or_restore())
+                .entry(committee_id)
+                .or_default()
+                .recv_or_restore()
         })
     }
 
     fn get_timeouts(&self, view: View, committee_id: CommitteeId) -> Option<Receiver<TimeoutMsg>> {
-        self.cache.lock().unwrap().get_mut(&view).and_then(|m| {
+        self.cache.lock().unwrap().get_mut(&view).map(|m| {
             m.timeouts
-                .get_mut(&committee_id)
-                .map(|spsc| spsc.recv_or_restore())
+                .entry(committee_id)
+                .or_default()
+                .recv_or_restore()
         })
     }
 }
