@@ -10,6 +10,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-dependencies-graph:
+    name: Check dependencies graph
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install required libraries
+        run: sudo apt install -y graphviz
+      - name: Install cargo-depgraph
+        run: cargo install cargo-depgraph@1.6.0
+      - name: Generate new graph
+        run: cargo depgraph --all-deps --dedup-transitive-deps --workspace-only --all-features > ${{ runner.temp }}/dependencies_graph.dot
+      - name: Compare dependency graphs
+        run: |
+          diff dependencies_graph.dot ${{ runner.temp }}/dependencies_graph.dot || exit 1
   formatting:
     name: Check formatting
     runs-on: ubuntu-latest
