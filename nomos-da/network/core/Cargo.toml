@@ -16,8 +16,10 @@ libp2p-stream            = "0.3.0-alpha"
 log                      = "0.4"
 nomos-core               = { workspace = true }
 nomos-da-messages        = { workspace = true }
+nomos-utils              = { workspace = true, features = ["time"] }
 rand                     = "0.8"
 serde                    = "1.0"
+serde_with               = { workspace = true }
 subnetworks-assignations = { workspace = true }
 thiserror                = "1.0"
 tokio                    = { version = "1" }
