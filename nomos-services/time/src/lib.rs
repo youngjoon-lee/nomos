@@ -5,7 +5,7 @@
 )]
 
 use std::{
-    fmt::{Debug, Formatter},
+    fmt::{Debug, Display, Formatter},
     pin::Pin,
 };
 
@@ -14,9 +14,8 @@ use futures::{Stream, StreamExt};
 use log::error;
 use overwatch::{
     services::{
-        relay::RelayMessage,
         state::{NoOperator, NoState},
-        ServiceCore, ServiceData, ServiceId,
+        AsServiceId, ServiceCore, ServiceData,
     },
     DynError, OpaqueServiceStateHandle,
 };
@@ -27,8 +26,6 @@ use tokio_stream::wrappers::BroadcastStream;
 use crate::backends::TimeBackend;
 
 pub mod backends;
-
-const TIME_SERVICE_TAG: ServiceId = "time-service";
 
 #[derive(Clone, Debug)]
 pub struct SlotTick {
@@ -52,43 +49,42 @@ impl Debug for TimeServiceMessage {
     }
 }
 
-impl RelayMessage for TimeServiceMessage {}
-
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug)]
 pub struct TimeServiceSettings<BackendSettings> {
     pub backend_settings: BackendSettings,
 }
 
-pub struct TimeService<Backend>
+pub struct TimeService<Backend, RuntimeServiceId>
 where
     Backend: TimeBackend,
     Backend::Settings: Clone,
 {
-    state: OpaqueServiceStateHandle<Self>,
+    state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
     backend: Backend,
 }
 
-impl<Backend> ServiceData for TimeService<Backend>
+impl<Backend, RuntimeServiceId> ServiceData for TimeService<Backend, RuntimeServiceId>
 where
     Backend: TimeBackend,
     Backend::Settings: Clone,
 {
-    const SERVICE_ID: ServiceId = TIME_SERVICE_TAG;
     type Settings = TimeServiceSettings<Backend::Settings>;
     type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
+    type StateOperator = NoOperator<Self::State>;
     type Message = TimeServiceMessage;
 }
 
 #[async_trait::async_trait]
-impl<Backend> ServiceCore for TimeService<Backend>
+impl<Backend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for TimeService<Backend, RuntimeServiceId>
 where
     Backend: TimeBackend + Send,
     Backend::Settings: Clone + Send + Sync,
+    RuntimeServiceId: AsServiceId<Self> + Display + Send,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self>,
+        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, DynError> {
         let Self::Settings {
@@ -142,7 +138,7 @@ where
 
                 }
                 Some(lifecycle_msg) = lifecycle_relay.next() => {
-                    if should_stop_service::<Self>(&lifecycle_msg) {
+                    if should_stop_service::<Self, RuntimeServiceId>(&lifecycle_msg) {
                         break;
                     }
                 }
