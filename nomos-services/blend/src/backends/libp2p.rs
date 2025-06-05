@@ -136,7 +136,10 @@ impl BlendBehaviour {
             blend:
                 nomos_blend_network::Behaviour::<SphinxMessage, TokioIntervalStreamProvider>::new(
                     nomos_blend_network::Config {
-                        duplicate_cache_lifespan: 60,
+                        // TODO: This should be as (ROUNDS_IN_SESSION + BUFFER) * MAX_HOPS,
+                        // once session and round mechanisms are implemented.
+                        // https://www.notion.so/Blend-Protocol-Version-1-PENDING-MIGRATION-1c48f96fb65c809494efe63019a5ebfb?source=copy_link#2088f96fb65c80be9057c6b4ce6b7023
+                        seen_message_cache_size: 1_944_000,
                         conn_monitor_settings: config.conn_monitor,
                     },
                 ),
