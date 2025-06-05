@@ -99,10 +99,17 @@ where
             service_resources_handle:
                 OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
                     ref mut inbound_relay,
+                    ref status_updater,
                     ..
                 },
             ref mut backend,
         } = self;
+
+        status_updater.notify_ready();
+        tracing::info!(
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
 
         while let Some(msg) = inbound_relay.recv().await {
             Self::handle_network_service_message(msg, backend).await;

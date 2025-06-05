@@ -111,6 +111,7 @@ where
                     ref mut inbound_relay,
                     ref overwatch_handle,
                     ref settings_handle,
+                    ref status_updater,
                     ..
                 },
             ref mut backend,
@@ -165,6 +166,12 @@ where
             wire::serialize(&message)
                 .expect("Message from internal services should not fail to serialize")
         });
+
+        status_updater.notify_ready();
+        tracing::info!(
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
 
         loop {
             tokio::select! {

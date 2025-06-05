@@ -128,6 +128,7 @@ where
         + Sync
         + Display
         + Send
+        + AsServiceId<Self>
         + AsServiceId<NetworkAdapter::NetworkService>
         + AsServiceId<MempoolAdapter::MempoolService>,
 {
@@ -165,6 +166,13 @@ where
         let mempool_adapter = MempoolAdapter::new(mempool_relay);
         let backend = Backend::init(backend_settings, network_adapter, mempool_adapter);
         let mut inbound_relay = service_resources_handle.inbound_relay;
+
+        service_resources_handle.status_updater.notify_ready();
+        tracing::info!(
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
+
         while let Some(dispersal_msg) = inbound_relay.recv().await {
             match dispersal_msg {
                 DaDispersalMsg::Disperse {

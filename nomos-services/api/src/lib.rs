@@ -1,13 +1,14 @@
-use std::{future::Future, sync::OnceLock, time::Duration};
+use std::{fmt::Display, future::Future, sync::OnceLock, time::Duration};
 
 use overwatch::{
     overwatch::handle::OverwatchHandle,
     services::{
         state::{NoOperator, NoState},
-        ServiceCore, ServiceData,
+        AsServiceId, ServiceCore, ServiceData,
     },
     DynError, OpaqueServiceResourcesHandle,
 };
+
 pub mod http;
 
 static HTTP_REQUEST_TIMEOUT: OnceLock<Duration> = OnceLock::new();
@@ -36,19 +37,16 @@ pub struct ApiServiceSettings<S> {
 }
 
 pub struct ApiService<B: Backend<RuntimeServiceId>, RuntimeServiceId> {
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     settings: ApiServiceSettings<B::Settings>,
-    overwatch_handle: OverwatchHandle<RuntimeServiceId>,
 }
 
 impl<B: Backend<RuntimeServiceId>, RuntimeServiceId> ServiceData
     for ApiService<B, RuntimeServiceId>
 {
     type Settings = ApiServiceSettings<B::Settings>;
-
     type State = NoState<Self::Settings>;
-
     type StateOperator = NoOperator<Self::State>;
-
     type Message = ();
 }
 
@@ -56,7 +54,7 @@ impl<B: Backend<RuntimeServiceId>, RuntimeServiceId> ServiceData
 impl<B, RuntimeServiceId> ServiceCore<RuntimeServiceId> for ApiService<B, RuntimeServiceId>
 where
     B: Backend<RuntimeServiceId> + Send + Sync + 'static,
-    RuntimeServiceId: Send,
+    RuntimeServiceId: AsServiceId<Self> + Display + Send,
 {
     /// Initialize the service with the given state
     fn init(
@@ -73,15 +71,24 @@ where
         }
 
         Ok(Self {
+            service_resources_handle,
             settings,
-            overwatch_handle: service_resources_handle.overwatch_handle,
         })
     }
 
     /// Service main loop
     async fn run(mut self) -> Result<(), DynError> {
         let endpoint = B::new(self.settings.backend_settings).await?;
-        endpoint.serve(self.overwatch_handle).await?;
+
+        self.service_resources_handle.status_updater.notify_ready();
+        tracing::info!(
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
+
+        endpoint
+            .serve(self.service_resources_handle.overwatch_handle)
+            .await?;
         Ok(())
     }
 }
@@ -102,6 +109,6 @@ where
         .await
         .map_or_else(
             |_| Err(timeout_error.into()),
-            |result| result.map_err(std::convert::Into::into),
+            |result| result.map_err(Into::into),
         )
 }

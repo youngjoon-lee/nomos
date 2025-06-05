@@ -530,6 +530,12 @@ where
         let mut consensus_blocks = consensus_adapter.block_stream().await;
         let storage_adapter = DaStorage::new(storage_relay).await;
 
+        service_resources_handle.status_updater.notify_ready();
+        tracing::info!(
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
+
         loop {
             tokio::select! {
                 Some(block) = consensus_blocks.next() => {

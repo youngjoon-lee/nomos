@@ -194,6 +194,12 @@ where
             .await?;
         let storage_adapter = S::new(storage_relay).await;
 
+        service_resources_handle.status_updater.notify_ready();
+        tracing::info!(
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
+
         loop {
             tokio::select! {
                 Some(share) = share_stream.next() => {

@@ -18,7 +18,7 @@ mod tests {
     use overwatch::{
         derive_services,
         overwatch::OverwatchRunner,
-        services::{state::ServiceState, ServiceCore, ServiceData},
+        services::{state::ServiceState, AsServiceId, ServiceCore, ServiceData},
         DynError, OpaqueServiceResourcesHandle,
     };
     use serde::{Deserialize, Serialize};
@@ -80,6 +80,12 @@ mod tests {
             let Self {
                 service_resources_handle,
             } = self;
+
+            service_resources_handle.status_updater.notify_ready();
+            tracing::info!(
+                "Service '{}' is ready.",
+                <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+            );
 
             service_resources_handle
                 .state_updater
