@@ -34,6 +34,7 @@ use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use storage::DaStorageAdapter;
+use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt as _;
 use tracing::{error, instrument};
@@ -400,6 +401,7 @@ where
     SamplingBackend::Settings: Clone + Send + Sync,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send,
     SamplingNetwork::Settings: Send + Sync,
+    SamplingNetwork::Membership: MembershipHandler + Clone,
     SamplingRng: Rng + SeedableRng + Send,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
     VerifierBackend:
@@ -416,8 +418,9 @@ where
         + Sync,
     ApiAdapter::Settings: Clone + Send + Sync,
     RuntimeServiceId: AsServiceId<Self>
-        + AsServiceId<NetworkService<SamplingNetwork::Backend, RuntimeServiceId>>
-        + AsServiceId<StorageService<SamplingStorage::Backend, RuntimeServiceId>>
+        + AsServiceId<
+            NetworkService<SamplingNetwork::Backend, SamplingNetwork::Membership, RuntimeServiceId>,
+        > + AsServiceId<StorageService<SamplingStorage::Backend, RuntimeServiceId>>
         + AsServiceId<
             DaVerifierService<VerifierBackend, VerifierNetwork, VerifierStorage, RuntimeServiceId>,
         > + Debug
@@ -448,7 +451,7 @@ where
 
         let network_relay = service_resources_handle
             .overwatch_handle
-            .relay::<NetworkService<_, _>>()
+            .relay::<NetworkService<_, _, _>>()
             .await?;
         let mut network_adapter = SamplingNetwork::new(network_relay).await;
         let mut sampling_message_stream = network_adapter.listen_to_sampling_messages().await?;
@@ -479,7 +482,7 @@ where
         wait_until_services_are_ready!(
             &service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
-            NetworkService<_, _>,
+            NetworkService<_, _, _>,
             StorageService<_, _>,
             DaVerifierService<_, _, _, _>
         )

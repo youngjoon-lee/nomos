@@ -1,8 +1,9 @@
 use std::{collections::HashSet, sync::Arc};
 
-use arc_swap::{ArcSwap, Guard};
+use arc_swap::ArcSwap;
 use subnetworks_assignations::{MembershipHandler, SubnetworkAssignations};
 
+#[derive(Debug, Clone)]
 pub struct DaMembershipHandler<Membership> {
     membership: Arc<ArcSwap<Membership>>,
 }
@@ -23,9 +24,9 @@ impl<Membership> DaMembershipHandler<Membership> {
     }
 
     #[must_use]
-    pub fn membership(&self) -> Guard<Arc<Membership>> {
+    pub fn membership(&self) -> Arc<Membership> {
         // Inner type held by ArcSwap is wrapped in Arc.
-        self.membership.load()
+        self.membership.load_full()
     }
 }
 
@@ -63,13 +64,5 @@ where
 
     fn subnetworks(&self) -> SubnetworkAssignations<Self::NetworkId, Self::Id> {
         self.membership.load().subnetworks()
-    }
-}
-
-impl<Membership> Clone for DaMembershipHandler<Membership> {
-    fn clone(&self) -> Self {
-        Self {
-            membership: Arc::clone(&self.membership),
-        }
     }
 }
