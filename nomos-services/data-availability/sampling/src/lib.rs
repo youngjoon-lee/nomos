@@ -8,6 +8,7 @@ use std::{
     fmt::{Debug, Display},
     marker::PhantomData,
     sync::Arc,
+    time::Duration,
 };
 
 use backend::{DaSamplingServiceBackend, SamplingState};
@@ -31,6 +32,7 @@ use overwatch::{
 };
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
+use services_utils::wait_until_services_are_ready;
 use storage::DaStorageAdapter;
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt as _;
@@ -473,6 +475,15 @@ where
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
+
+        wait_until_services_are_ready!(
+            &service_resources_handle.overwatch_handle,
+            Some(Duration::from_secs(60)),
+            NetworkService<_, _>,
+            StorageService<_, _>,
+            DaVerifierService<_, _, _, _>
+        )
+        .await?;
 
         loop {
             tokio::select! {

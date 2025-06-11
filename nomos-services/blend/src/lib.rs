@@ -38,6 +38,7 @@ use overwatch::{
 use rand::SeedableRng as _;
 use rand_chacha::ChaCha12Rng;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use services_utils::wait_until_services_are_ready;
 use tokio::{sync::mpsc, time};
 use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
 
@@ -169,6 +170,13 @@ where
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
+
+        wait_until_services_are_ready!(
+            &self.service_resources_handle.overwatch_handle,
+            Some(Duration::from_secs(60)),
+            NetworkService<_, _>
+        )
+        .await?;
 
         loop {
             tokio::select! {

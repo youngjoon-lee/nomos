@@ -640,7 +640,7 @@ where
     make_request_and_return_response!(HttpStorageAdapter::get_shared_commitments::<
         DaStorageConverter,
         DaShare,
-    >(relay, req.blob_id,))
+    >(relay, req.blob_id))
 }
 
 #[utoipa::path(
@@ -766,7 +766,7 @@ where
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
 {
-    make_request_and_return_response!(da::balancer_stats::<Backend, RuntimeServiceId>(&handle,))
+    make_request_and_return_response!(da::balancer_stats::<Backend, RuntimeServiceId>(&handle))
 }
 
 #[utoipa::path(
@@ -786,7 +786,7 @@ where
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
 {
-    make_request_and_return_response!(da::monitor_stats::<Backend, RuntimeServiceId>(&handle,))
+    make_request_and_return_response!(da::monitor_stats::<Backend, RuntimeServiceId>(&handle))
 }
 
 #[utoipa::path(
