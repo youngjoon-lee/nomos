@@ -94,7 +94,7 @@ impl TipRequestStream {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Event {
     ProvideBlocksRequest {
         /// Return blocks up to `target_block`.
@@ -670,7 +670,7 @@ mod tests {
 
         let provider_addr: Multiaddr = format!(
             "/ip4/127.0.0.1/udp/{}/quic-v1",
-            u64::from(rng().random::<u16>())
+            rng().random_range(10000..60000)
         )
         .parse()
         .unwrap();

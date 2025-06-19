@@ -2,7 +2,7 @@ use std::{hash::Hash, marker::PhantomData};
 
 use nomos_core::{block::Block, wire};
 use nomos_network::{
-    backends::libp2p::{Command, Event, EventKind, Libp2p, PubSubCommand::Subscribe},
+    backends::libp2p::{Command, Libp2p, PubSubCommand::Subscribe},
     message::NetworkMsg,
     NetworkService,
 };
@@ -11,10 +11,7 @@ use overwatch::{
     DynError,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use tokio_stream::{
-    wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
-    StreamExt as _,
-};
+use tokio_stream::{wrappers::errors::BroadcastStreamRecvError, StreamExt as _};
 
 use crate::{
     messages::NetworkMessage,
@@ -91,35 +88,29 @@ where
         let (sender, receiver) = tokio::sync::oneshot::channel();
         if let Err((e, _)) = self
             .network_relay
-            .send(NetworkMsg::Subscribe {
-                kind: EventKind::Message,
-                sender,
-            })
+            .send(NetworkMsg::SubscribeToPubSub { sender })
             .await
         {
             return Err(Box::new(e));
         }
-        Ok(Box::new(
-            BroadcastStream::new(receiver.await.map_err(Box::new)?).filter_map(|message| {
-                match message {
-                    Ok(Event::Message(message)) => wire::deserialize(&message.data).map_or_else(
-                        |_| {
-                            tracing::debug!("unrecognized gossipsub message");
-                            None
-                        },
-                        |msg| match msg {
-                            NetworkMessage::Block(block) => {
-                                tracing::debug!("received block {:?}", block.header().id());
-                                Some(block)
-                            }
-                        },
-                    ),
-                    Err(BroadcastStreamRecvError::Lagged(n)) => {
-                        tracing::error!("lagged messages: {n}");
-                        None
+        let stream = receiver.await.map_err(Box::new)?;
+        Ok(Box::new(stream.filter_map(|message| match message {
+            Ok(message) => wire::deserialize(&message.data).map_or_else(
+                |_| {
+                    tracing::debug!("unrecognized gossipsub message");
+                    None
+                },
+                |msg| match msg {
+                    NetworkMessage::Block(block) => {
+                        tracing::debug!("received block {:?}", block.header().id());
+                        Some(block)
                     }
-                }
-            }),
-        ))
+                },
+            ),
+            Err(BroadcastStreamRecvError::Lagged(n)) => {
+                tracing::error!("lagged messages: {n}");
+                None
+            }
+        })))
     }
 }
