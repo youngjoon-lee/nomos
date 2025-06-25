@@ -16,8 +16,6 @@ use crate::{
 };
 
 /// An encapsulated message that is sent to the blend network.
-//
-// TODO: Implement [`BlendMessage`] trait for this type.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     /// A header that is not encapsulated.
@@ -82,7 +80,8 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
     /// - [`DecapsulationOutput::Incompleted`] if the message is still
     ///   encapsulated.
     ///
-    /// If not, [`Error::ProofOfSelectionVerificationFailed`] will be returned.
+    /// If not, [`Error::DeserializationFailed`] or
+    /// [`Error::ProofOfSelectionVerificationFailed`] will be returned.
     pub fn decapsulate(
         self,
         private_key: &X25519PrivateKey,
@@ -100,9 +99,10 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
                     encapsulated_part,
                 }))
             }
-            PartDecapsulationOutput::Completed(payload) => {
-                Ok(DecapsulationOutput::Completed(payload))
-            }
+            PartDecapsulationOutput::Completed(payload) => Ok(DecapsulationOutput::Completed((
+                payload.payload_type(),
+                payload.body()?.to_vec(),
+            ))),
         }
     }
 }
@@ -114,7 +114,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
 )]
 pub enum DecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
     Incompleted(EncapsulatedMessage<ENCAPSULATION_COUNT>),
-    Completed(Payload),
+    Completed((PayloadType, Vec<u8>)),
 }
 
 /// Part of the message that should be encapsulated.
@@ -526,15 +526,15 @@ mod tests {
 
         // We can decapsulate with the correct private key
         // and the fully-decapsulated payload is correct.
-        let DecapsulationOutput::Completed(payload) = msg
+        let DecapsulationOutput::Completed((payload_type, payload_body)) = msg
             .decapsulate(blend_node_enc_keys.first().unwrap())
             .unwrap()
         else {
             panic!("Expected an incompleted message");
         };
         // The payload body should be the same as the original one.
-        assert_eq!(payload.payload_type(), PayloadType::Data);
-        assert_eq!(payload.body().unwrap(), PAYLOAD_BODY);
+        assert_eq!(payload_type, PayloadType::Data);
+        assert_eq!(payload_body, PAYLOAD_BODY);
     }
 
     #[test]

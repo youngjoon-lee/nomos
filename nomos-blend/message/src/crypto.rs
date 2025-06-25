@@ -42,6 +42,11 @@ impl Ed25519PrivateKey {
     pub fn derive_x25519(&self) -> X25519PrivateKey {
         self.0.to_scalar_bytes().into()
     }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8; KEY_SIZE] {
+        self.0.as_bytes()
+    }
 }
 
 impl From<[u8; KEY_SIZE]> for Ed25519PrivateKey {
@@ -50,7 +55,7 @@ impl From<[u8; KEY_SIZE]> for Ed25519PrivateKey {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Ed25519PublicKey(ed25519_dalek::VerifyingKey);
 
 impl Ed25519PublicKey {
@@ -58,6 +63,11 @@ impl Ed25519PublicKey {
     #[must_use]
     pub fn derive_x25519(&self) -> X25519PublicKey {
         self.0.to_montgomery().to_bytes().into()
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8; KEY_SIZE] {
+        self.0.as_bytes()
     }
 
     #[must_use]
@@ -69,6 +79,17 @@ impl Ed25519PublicKey {
 impl From<Ed25519PublicKey> for [u8; KEY_SIZE] {
     fn from(key: Ed25519PublicKey) -> Self {
         key.0.to_bytes()
+    }
+}
+
+impl TryFrom<[u8; KEY_SIZE]> for Ed25519PublicKey {
+    type Error = String;
+
+    fn try_from(key: [u8; KEY_SIZE]) -> Result<Self, Self::Error> {
+        Ok(Self(
+            ed25519_dalek::VerifyingKey::from_bytes(&key)
+                .map_err(|_| "Invalid Ed25519 public key".to_owned())?,
+        ))
     }
 }
 
@@ -143,6 +164,14 @@ pub const PROOF_OF_QUOTA_SIZE: usize = 160;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProofOfQuota(#[serde(with = "BigArray")] [u8; PROOF_OF_QUOTA_SIZE]);
+
+impl ProofOfQuota {
+    // TODO: Remove this once the actual proof of quota is implemented.
+    #[must_use]
+    pub const fn dummy() -> Self {
+        Self([6u8; PROOF_OF_QUOTA_SIZE])
+    }
+}
 
 impl From<[u8; PROOF_OF_QUOTA_SIZE]> for ProofOfQuota {
     fn from(bytes: [u8; PROOF_OF_QUOTA_SIZE]) -> Self {
