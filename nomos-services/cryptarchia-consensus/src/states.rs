@@ -144,7 +144,13 @@ mod tests {
                 cryptarchia_engine_config,
             );
 
-            // Add 3 more blocks to canonical chain. Blocks `0`, `1`, `2` and `3` represent
+            //      b4 - b5
+            //    /
+            // b0 - b1 - b2 - b3 == local chain tip
+            //    \    \    \
+            //      b6   b7   b8
+            //
+            // Add 3 more blocks to canonical chain. `b0`, `b1`, `b2`, and `b3` represent
             // the canonical chain now.
             cryptarchia = cryptarchia
                 .receive_block([1; 32].into(), genesis_header_id, 1.into())
@@ -196,26 +202,22 @@ mod tests {
             )
             .unwrap();
 
-        // We configured `k = 2`, and since the canonical chain is 4-block long (blocks
-        // `0` to `4`), it means that all forks diverging from and before 2
-        // blocks in the past are considered prunable, which are blocks `4` and
-        // `5` belonging to the first fork from genesis, block `6` belonging to the
-        // second fork from genesis, and block `7` belonging to the fork from block
-        // `1`. Block `8` is excluded since it diverged from block `2` which is
-        // not yet finalized, as it is only 1 block past, which is less than the
-        // configured `k = 2`.
+        // We configured `k = 2`, and since the canonical chain is 4-block long (`b0` to
+        // `b3`), it means that all forks diverging before 2 blocks in the past
+        // are considered prunable.
+        // That is:
+        // - `b3` and `b4`, belonging to the first fork from genesis.
+        // - `b6` belonging to the second fork from genesis.
+        // On the other hand:
+        // - `b7` is not pruned since it diverged from `b1`, which is the LIB.
+        // - `b8` is not pruned since it diverged from `b2`, which is 1 block younger
+        //   than LIB.
         assert_eq!(
             recovery_state
                 .prunable_blocks
                 .into_iter()
                 .collect::<HashSet<_>>(),
-            [
-                [4; 32].into(),
-                [5; 32].into(),
-                [6; 32].into(),
-                [7; 32].into()
-            ]
-            .into()
+            [[4; 32].into(), [5; 32].into(), [6; 32].into(),].into()
         );
 
         // Test when additional blocks are included.
@@ -240,7 +242,6 @@ mod tests {
                 [4; 32].into(),
                 [5; 32].into(),
                 [6; 32].into(),
-                [7; 32].into(),
                 [255; 32].into()
             ]
             .into()
