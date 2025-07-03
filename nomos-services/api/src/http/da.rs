@@ -347,7 +347,9 @@ pub async fn block_peer<Backend, Membership, MembershipAdapter, StorageAdapter, 
 where
     Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
     Backend::Message: MonitorMessageFactory,
-    Membership: MembershipHandler + Clone,
+    Membership: MembershipHandler + Clone + Send + Sync + 'static,
+    Membership::Id: Send + Sync + 'static,
+    Membership::NetworkId: Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -386,7 +388,9 @@ pub async fn unblock_peer<
 where
     Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
     Backend::Message: MonitorMessageFactory,
-    Membership: MembershipHandler + Clone,
+    Membership: MembershipHandler + Clone + Send + Sync + 'static,
+    Membership::Id: Send + Sync + 'static,
+    Membership::NetworkId: Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -428,7 +432,9 @@ pub async fn blacklisted_peers<
 where
     Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
     Backend::Message: MonitorMessageFactory,
-    Membership: MembershipHandler + Clone,
+    Membership: MembershipHandler + Clone + Send + Sync + 'static,
+    Membership::Id: Send + Sync + 'static,
+    Membership::NetworkId: Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -470,7 +476,9 @@ pub async fn balancer_stats<
 where
     Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
     Backend::Message: BalancerMessageFactory,
-    Membership: MembershipHandler + Clone,
+    Membership: MembershipHandler + Clone + Send + Sync + 'static,
+    Membership::Id: Send + Sync + 'static,
+    Membership::NetworkId: Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -512,7 +520,9 @@ pub async fn monitor_stats<
 where
     Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
     Backend::Message: MonitorMessageFactory,
-    Membership: MembershipHandler + Clone,
+    Membership: MembershipHandler + Clone + Send + Sync + 'static,
+    Membership::Id: Send + Sync + 'static,
+    Membership::NetworkId: Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
