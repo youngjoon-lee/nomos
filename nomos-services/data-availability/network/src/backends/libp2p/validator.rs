@@ -20,8 +20,9 @@ use subnetworks_assignations::MembershipHandler;
 use tokio::{
     sync::{broadcast, mpsc::UnboundedSender, oneshot},
     task::JoinHandle,
+    time,
 };
-use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::wrappers::{BroadcastStream, IntervalStream};
 use tracing::instrument;
 
 use crate::{
@@ -44,7 +45,6 @@ where
 {
     /// Kickstart a network sapling
     RequestSample {
-        subnetwork_id: SubnetworkId,
         blob_id: BlobId,
     },
     MonitorRequest(ConnectionMonitorCommand<MonitorStats>),
@@ -74,7 +74,7 @@ pub enum DaNetworkEvent {
 pub struct DaNetworkValidatorBackend<Membership> {
     task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
-    sampling_request_channel: UnboundedSender<(SubnetworkId, BlobId)>,
+    sampling_request_channel: UnboundedSender<BlobId>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
@@ -106,6 +106,12 @@ where
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Self::Membership,
     ) -> Self {
+        // TODO: If there is no requirement to subscribe to block number events in chain
+        // service, and an approximate duration is enough for sampling to hold
+        // temporal connections - remove this message.
+        let subnet_refresh_signal =
+            Box::pin(IntervalStream::new(time::interval(config.refresh_interval)).map(|_| ()));
+
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
         let (mut validator_swarm, validator_events_stream) = ValidatorSwarm::new(
@@ -116,6 +122,8 @@ where
             config.balancer_interval,
             config.redial_cooldown,
             config.replication_settings,
+            config.subnets_settings,
+            subnet_refresh_signal,
         );
         let address = config.listening_address;
         // put swarm to listen at the specified configuration address
@@ -179,12 +187,9 @@ where
     #[instrument(skip_all)]
     async fn process(&self, msg: Self::Message) {
         match msg {
-            DaNetworkMessage::RequestSample {
-                subnetwork_id,
-                blob_id,
-            } => {
+            DaNetworkMessage::RequestSample { blob_id } => {
                 info_with_id!(&blob_id, "RequestSample");
-                handle_sample_request(&self.sampling_request_channel, subnetwork_id, blob_id).await;
+                handle_sample_request(&self.sampling_request_channel, blob_id).await;
             }
             DaNetworkMessage::MonitorRequest(command) => {
                 match command.peer_id() {

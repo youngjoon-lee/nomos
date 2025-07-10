@@ -4,7 +4,6 @@ use std::pin::Pin;
 
 use futures::Stream;
 use nomos_core::da::BlobId;
-use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
     backends::{libp2p::common::SamplingEvent, NetworkBackend},
     NetworkService,
@@ -35,11 +34,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
         >,
     ) -> Self;
 
-    async fn start_sampling(
-        &mut self,
-        blob_id: BlobId,
-        subnets: &[SubnetworkId],
-    ) -> Result<(), DynError>;
+    async fn start_sampling(&mut self, blob_id: BlobId) -> Result<(), DynError>;
     async fn listen_to_sampling_messages(
         &self,
     ) -> Result<Pin<Box<dyn Stream<Item = SamplingEvent> + Send>>, DynError>;

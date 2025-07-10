@@ -33,7 +33,6 @@ use overwatch::{
     },
     DynError, OpaqueServiceResourcesHandle,
 };
-use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use storage::DaStorageAdapter;
@@ -77,7 +76,6 @@ pub struct DaSamplingServiceSettings<BackendSettings, ApiAdapterSettings> {
 pub struct DaSamplingService<
     SamplingBackend,
     SamplingNetwork,
-    SamplingRng,
     SamplingStorage,
     VerifierBackend,
     VerifierNetwork,
@@ -85,18 +83,15 @@ pub struct DaSamplingService<
     ApiAdapter,
     RuntimeServiceId,
 > where
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng>,
+    SamplingBackend: DaSamplingServiceBackend,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId>,
-    SamplingRng: Rng,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId>,
     ApiAdapter: ApiAdapterTrait,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    #[expect(clippy::type_complexity, reason = "No other way around this for now.")]
     _phantom: PhantomData<(
         SamplingBackend,
         SamplingNetwork,
-        SamplingRng,
         SamplingStorage,
         VerifierBackend,
         VerifierNetwork,
@@ -108,7 +103,6 @@ pub struct DaSamplingService<
 impl<
         SamplingBackend,
         SamplingNetwork,
-        SamplingRng,
         SamplingStorage,
         VerifierBackend,
         VerifierNetwork,
@@ -119,7 +113,6 @@ impl<
     DaSamplingService<
         SamplingBackend,
         SamplingNetwork,
-        SamplingRng,
         SamplingStorage,
         VerifierBackend,
         VerifierNetwork,
@@ -128,9 +121,8 @@ impl<
         RuntimeServiceId,
     >
 where
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng>,
+    SamplingBackend: DaSamplingServiceBackend,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId>,
-    SamplingRng: Rng,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId>,
     ApiAdapter: ApiAdapterTrait,
 {
@@ -148,7 +140,6 @@ where
 impl<
         SamplingBackend,
         SamplingNetwork,
-        SamplingRng,
         SamplingStorage,
         VerifierBackend,
         VerifierNetwork,
@@ -159,7 +150,6 @@ impl<
     DaSamplingService<
         SamplingBackend,
         SamplingNetwork,
-        SamplingRng,
         SamplingStorage,
         VerifierBackend,
         VerifierNetwork,
@@ -169,14 +159,12 @@ impl<
     >
 where
     SamplingBackend: DaSamplingServiceBackend<
-            SamplingRng,
             BlobId = BlobId,
             Share = DaShare,
             SharesCommitments = DaSharesCommitments,
         > + Send,
     SamplingBackend::Settings: Clone,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send,
-    SamplingRng: Rng + SeedableRng,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
     VerifierBackend: VerifierBackendTrait<DaShare = DaShare>,
     ApiAdapter: ApiAdapterTrait<
@@ -196,8 +184,7 @@ where
     ) {
         match msg {
             DaSamplingServiceMsg::TriggerSampling { blob_id } => {
-                if let SamplingState::Init(sampling_subnets) = sampler.init_sampling(blob_id).await
-                {
+                if matches!(sampler.init_sampling(blob_id).await, SamplingState::Init) {
                     info_with_id!(blob_id, "InitSampling");
                     if let Some(commitments) =
                         Self::request_commitments(storage_adapter, api_adapter, blob_id).await
@@ -210,10 +197,7 @@ where
                         return;
                     }
 
-                    if let Err(e) = network_adapter
-                        .start_sampling(blob_id, &sampling_subnets)
-                        .await
-                    {
+                    if let Err(e) = network_adapter.start_sampling(blob_id).await {
                         // we can short circuit the failure from the beginning
                         sampler.handle_sampling_error(blob_id).await;
                         error_with_id!(blob_id, "Error sampling for BlobId: {blob_id:?}: {e}");
@@ -339,7 +323,6 @@ where
 impl<
         SamplingBackend,
         SamplingNetwork,
-        SamplingRng,
         SamplingStorage,
         VerifierBackend,
         VerifierNetwork,
@@ -350,7 +333,6 @@ impl<
     for DaSamplingService<
         SamplingBackend,
         SamplingNetwork,
-        SamplingRng,
         SamplingStorage,
         VerifierBackend,
         VerifierNetwork,
@@ -359,9 +341,8 @@ impl<
         RuntimeServiceId,
     >
 where
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng>,
+    SamplingBackend: DaSamplingServiceBackend,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId>,
-    SamplingRng: Rng,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId>,
     ApiAdapter: ApiAdapterTrait,
 {
@@ -375,7 +356,6 @@ where
 impl<
         SamplingBackend,
         SamplingNetwork,
-        SamplingRng,
         SamplingStorage,
         VerifierBackend,
         VerifierNetwork,
@@ -386,7 +366,6 @@ impl<
     for DaSamplingService<
         SamplingBackend,
         SamplingNetwork,
-        SamplingRng,
         SamplingStorage,
         VerifierBackend,
         VerifierNetwork,
@@ -396,7 +375,6 @@ impl<
     >
 where
     SamplingBackend: DaSamplingServiceBackend<
-            SamplingRng,
             BlobId = BlobId,
             Share = DaShare,
             SharesCommitments = DaSharesCommitments,
@@ -405,7 +383,6 @@ where
     SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send,
     SamplingNetwork::Settings: Send + Sync,
     SamplingNetwork::Membership: MembershipHandler + Clone + 'static,
-    SamplingRng: Rng + SeedableRng + Send,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
     VerifierBackend:
         nomos_da_verifier::backend::VerifierBackend<DaShare = SamplingBackend::Share> + Send,
@@ -485,8 +462,7 @@ where
 
         let api_adapter = ApiAdapter::new(api_adapter_settings);
 
-        let rng = SamplingRng::from_entropy();
-        let mut sampler = SamplingBackend::new(sampling_settings, rng);
+        let mut sampler = SamplingBackend::new(sampling_settings);
         let mut next_prune_tick = sampler.prune_interval();
 
         service_resources_handle.status_updater.notify_ready();

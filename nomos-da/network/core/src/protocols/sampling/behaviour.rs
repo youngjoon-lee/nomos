@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
+    pin::Pin,
     task::{Context, Poll, Waker},
 };
 
@@ -29,9 +30,11 @@ use nomos_da_messages::{
     packing::{pack_to_writer, unpack_from_reader},
     sampling,
 };
+use rand::seq::IteratorRandom as _;
+use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 use thiserror::Error;
-use tokio::sync::{mpsc, mpsc::UnboundedSender};
+use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::error;
 
@@ -78,6 +81,12 @@ pub enum SamplingError {
     },
     #[error("Canceled response: {error}")]
     ResponseChannel { error: Canceled, peer_id: PeerId },
+    #[error("Peer {peer_id} sent share for subnet {received} instead of {expected}")]
+    MismatchSubnetwork {
+        expected: SubnetworkId,
+        received: SubnetworkId,
+        peer_id: PeerId,
+    },
 }
 
 impl SamplingError {
@@ -91,6 +100,7 @@ impl SamplingError {
             | Self::RequestChannel { peer_id, .. }
             | Self::ResponseChannel { peer_id, .. }
             | Self::InvalidBlobId { peer_id, .. }
+            | Self::MismatchSubnetwork { peer_id, .. }
             | Self::BlobNotFound { peer_id, .. } => Some(peer_id),
         }
     }
@@ -170,6 +180,15 @@ impl Clone for SamplingError {
                 peer_id: *peer_id,
                 blob_id: blob_id.clone(),
                 subnetwork_id: *subnetwork_id,
+            },
+            Self::MismatchSubnetwork {
+                expected,
+                received,
+                peer_id,
+            } => Self::MismatchSubnetwork {
+                expected: *expected,
+                received: *received,
+                peer_id: *peer_id,
             },
         }
     }
@@ -262,6 +281,13 @@ type SampleFutureSuccess = (PeerId, SampleStreamResponse, SampleStream);
 type SampleFutureError = (SamplingError, Option<SampleStream>);
 type SamplingStreamFuture = BoxFuture<'static, Result<SampleFutureSuccess, SampleFutureError>>;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SubnetsConfig {
+    /// Number of unique subnets that samples should be taken from when sampling
+    /// a blob.
+    pub num_of_subnets: usize,
+}
+
 /// Executor sampling protocol
 /// Takes care of sending and replying sampling requests
 pub struct SamplingBehaviour<Membership: MembershipHandler> {
@@ -281,10 +307,17 @@ pub struct SamplingBehaviour<Membership: MembershipHandler> {
     to_close: VecDeque<SampleStream>,
     /// Subnetworks membership information
     membership: Membership,
+    /// Peers that were selected for
+    sampling_peers: HashMap<SubnetworkId, PeerId>,
     /// Hook of pending samples channel
-    samples_request_sender: UnboundedSender<(Membership::NetworkId, BlobId)>,
+    samples_request_sender: UnboundedSender<BlobId>,
     /// Pending samples stream
-    samples_request_stream: BoxStream<'static, (Membership::NetworkId, BlobId)>,
+    samples_request_stream: BoxStream<'static, BlobId>,
+    /// Subnets sampling config that is used when picking new subnetwork peers.
+    subnets_config: SubnetsConfig,
+    /// Refresh signal stream that triggers the subnetwork list refresh in
+    /// sampling baheviour.
+    subnet_refresh_signal: Pin<Box<dyn futures::Stream<Item = ()> + Send>>,
     /// Waker for sampling polling
     waker: Option<Waker>,
 }
@@ -294,7 +327,12 @@ where
     Membership: MembershipHandler + 'static,
     Membership::NetworkId: Send,
 {
-    pub fn new(local_peer_id: PeerId, membership: Membership) -> Self {
+    pub fn new(
+        local_peer_id: PeerId,
+        membership: Membership,
+        subnets_config: SubnetsConfig,
+        refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
+    ) -> Self {
         let stream_behaviour = libp2p_stream::Behaviour::new();
         let mut control = stream_behaviour.new_control();
 
@@ -306,8 +344,12 @@ where
         let to_sample = HashMap::new();
         let to_close = VecDeque::new();
 
+        let sampling_peers = HashMap::new();
         let (samples_request_sender, receiver) = mpsc::unbounded_channel();
         let samples_request_stream = UnboundedReceiverStream::new(receiver).boxed();
+
+        let subnet_refresh_signal = Box::pin(refresh_signal);
+
         Self {
             local_peer_id,
             stream_behaviour,
@@ -317,8 +359,11 @@ where
             to_sample,
             to_close,
             membership,
+            sampling_peers,
             samples_request_sender,
             samples_request_stream,
+            subnets_config,
+            subnet_refresh_signal,
             waker: None,
         }
     }
@@ -336,7 +381,7 @@ where
     }
 
     /// Get a hook to the sender channel of the sample events
-    pub fn sample_request_channel(&self) -> UnboundedSender<(Membership::NetworkId, BlobId)> {
+    pub fn sample_request_channel(&self) -> UnboundedSender<BlobId> {
         self.samples_request_sender.clone()
     }
 
@@ -513,40 +558,31 @@ impl<Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'sta
     /// Schedule a new task for sample the blob, if stream is not available
     /// queue messages for later processing.
     fn sample(
-        local_peer_id: PeerId,
         stream_tasks: &FuturesUnordered<SamplingStreamFuture>,
-        membership: &Membership,
-        subnetwork_id: SubnetworkId,
+        sampling_peers: &HashMap<SubnetworkId, PeerId>,
         blob_id: BlobId,
         control: &Control,
     ) {
-        let members = membership.members_of(&subnetwork_id);
-        // TODO: peer selection for sampling should be randomly selected (?) filtering
-        // ourselves currently we assume optimal setup which is one peer per
-        // blob
-        let peer = members
-            .iter()
-            .filter(|&id| id != &local_peer_id)
-            .copied()
-            .next()
-            .expect("At least a single node should be a member of the subnetwork");
-        // If its connected means we are already working on some other sample, enqueue
-        // message, stream behaviour will dial peer if connection is not
-        // present.
-        let control = control.clone();
-        let sample_request = sampling::SampleRequest::new(blob_id, subnetwork_id);
-        let with_dial_task: SamplingStreamFuture = async move {
-            // If we don't have an existing connection to the peer, this will immediately
-            // return `ConnectionReset` io error. To handle that, we need to queue
-            // `sample_request` for a peer and try again when the connection is
-            // established.
-            let stream = Self::open_stream(peer, control)
-                .await
-                .map_err(|err| (err, None))?;
-            Self::stream_sample(stream, sample_request).await
+        for (subnetwork_id, peer) in sampling_peers {
+            // If its connected means we are already working on some other sample, enqueue
+            // message, stream behaviour will dial peer if connection is not
+            // present.
+            let peer = *peer;
+            let control = control.clone();
+            let sample_request = sampling::SampleRequest::new(blob_id, *subnetwork_id);
+            let with_dial_task: SamplingStreamFuture = async move {
+                // If we don't have an existing connection to the peer, this will immediately
+                // return `ConnectionReset` io error. To handle that, we need to queue
+                // `sample_request` for a peer and try again when the connection is
+                // established.
+                let stream = Self::open_stream(peer, control)
+                    .await
+                    .map_err(|err| (err, None))?;
+                Self::stream_sample(stream, sample_request).await
+            }
+            .boxed();
+            stream_tasks.push(with_dial_task);
         }
-        .boxed();
-        stream_tasks.push(with_dial_task);
     }
 
     fn try_sample(&mut self, peer_id: PeerId) {
@@ -669,6 +705,35 @@ impl<Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'sta
         }
     }
 
+    fn refresh_subnets(
+        local_peer_id: PeerId,
+        subnets_config: &SubnetsConfig,
+        membership: &Membership,
+        sampling_peers: &mut HashMap<SubnetworkId, PeerId>,
+    ) {
+        // Previously selected subnetworks and their peers won't be used anymore.
+        sampling_peers.clear();
+
+        let mut rng = rand::thread_rng();
+        let subnets: Vec<SubnetworkId> = (0..membership.last_subnetwork_id())
+            .choose_multiple(&mut rng, subnets_config.num_of_subnets);
+
+        // Chosing a random peer for a subnetwork, even if previously selected peer for
+        // different subnetwork might also be a member of another subnetwork.
+        for subnet_id in subnets {
+            let candidates = membership.members_of(&subnet_id);
+            if let Some(peer) = candidates
+                .into_iter()
+                .filter(|peer| *peer != local_peer_id)
+                .choose(&mut rng)
+            {
+                sampling_peers.insert(subnet_id, peer);
+            } else {
+                tracing::warn!("No peers in a subnetwork {subnet_id}");
+            }
+        }
+    }
+
     fn poll_stream_tasks(
         cx: &mut Context<'_>,
         stream_tasks: &mut FuturesUnordered<SamplingStreamFuture>,
@@ -772,23 +837,22 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
             to_sample,
             to_close,
             control,
+            sampling_peers,
+            subnets_config,
+            subnet_refresh_signal,
             ..
         } = self;
 
         self.waker = Some(cx.waker().clone());
 
+        // Check if a new set of subnets and peers need to be selected.
+        if subnet_refresh_signal.poll_next_unpin(cx) == Poll::Ready(Some(())) {
+            Self::refresh_subnets(*local_peer_id, subnets_config, membership, sampling_peers);
+        }
+
         // poll pending outgoing samples
-        if let Poll::Ready(Some((subnetwork_id, blob_id))) =
-            samples_request_stream.poll_next_unpin(cx)
-        {
-            Self::sample(
-                *local_peer_id,
-                stream_tasks,
-                membership,
-                subnetwork_id,
-                blob_id,
-                control,
-            );
+        if let Poll::Ready(Some(blob_id)) = samples_request_stream.poll_next_unpin(cx) {
+            Self::sample(stream_tasks, sampling_peers, blob_id, control);
         }
 
         // poll incoming streams
