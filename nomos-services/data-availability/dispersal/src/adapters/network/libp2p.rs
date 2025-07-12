@@ -1,7 +1,7 @@
 use std::{collections::HashSet, fmt::Debug, marker::PhantomData, pin::Pin, time::Duration};
 
 use futures::{stream::BoxStream, Stream, StreamExt as _};
-use kzgrs_backend::common::share::DaShare;
+use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use nomos_core::da::BlobId;
 use nomos_da_network_core::{
     protocols::{
@@ -10,6 +10,7 @@ use nomos_da_network_core::{
     PeerId, SubnetworkId,
 };
 use nomos_da_network_service::{
+    api::ApiAdapter as ApiAdapterTrait,
     backends::libp2p::{
         common::SamplingEvent,
         executor::{
@@ -32,6 +33,7 @@ pub struct Libp2pNetworkAdapter<
     Membership,
     MembershipServiceAdapter,
     StorageAdapter,
+    ApiAdapter,
     RuntimeServiceId,
 > where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
@@ -41,15 +43,32 @@ pub struct Libp2pNetworkAdapter<
         + Sync
         + 'static,
     MembershipServiceAdapter: MembershipAdapter,
+    ApiAdapter: ApiAdapterTrait,
 {
     outbound_relay: OutboundRelay<
-        DaNetworkMsg<DaNetworkExecutorBackend<Membership>, Membership, RuntimeServiceId>,
+        DaNetworkMsg<
+            DaNetworkExecutorBackend<Membership>,
+            Membership,
+            DaSharesCommitments,
+            RuntimeServiceId,
+        >,
     >,
-    _phantom: PhantomData<(RuntimeServiceId, MembershipServiceAdapter, StorageAdapter)>,
+    _phantom: PhantomData<(
+        RuntimeServiceId,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        ApiAdapter,
+    )>,
 }
 
-impl<Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
-    Libp2pNetworkAdapter<Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
+impl<Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
+    Libp2pNetworkAdapter<
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        ApiAdapter,
+        RuntimeServiceId,
+    >
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -58,6 +77,7 @@ where
         + Sync
         + 'static,
     MembershipServiceAdapter: MembershipAdapter + Sync,
+    ApiAdapter: ApiAdapterTrait + Sync,
     StorageAdapter: Sync,
     RuntimeServiceId: Sync,
 {
@@ -73,8 +93,15 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId> DispersalNetworkAdapter
-    for Libp2pNetworkAdapter<Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
+impl<Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
+    DispersalNetworkAdapter
+    for Libp2pNetworkAdapter<
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        ApiAdapter,
+        RuntimeServiceId,
+    >
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -83,6 +110,7 @@ where
         + Sync
         + 'static,
     MembershipServiceAdapter: MembershipAdapter + Sync,
+    ApiAdapter: ApiAdapterTrait + Sync,
     StorageAdapter: Sync,
     RuntimeServiceId: Sync,
 {
@@ -91,6 +119,7 @@ where
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
+        ApiAdapter,
         RuntimeServiceId,
     >;
 
