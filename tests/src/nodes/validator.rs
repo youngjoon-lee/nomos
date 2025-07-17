@@ -21,7 +21,7 @@ use nomos_da_indexer::{
     IndexerSettings,
 };
 use nomos_da_network_core::{
-    protocols::sampling::behaviour::SubnetsConfig,
+    protocols::sampling::SubnetsConfig,
     swarm::{BalancerStats, DAConnectionPolicySettings, MonitorStats},
 };
 use nomos_da_network_service::{
@@ -385,7 +385,8 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 replication_settings: config.da_config.replication_settings,
                 subnets_settings: SubnetsConfig {
                     num_of_subnets: config.da_config.num_samples as usize,
-                    retry_limit: config.da_config.retry_subnets_limit,
+                    shares_retry_limit: config.da_config.retry_shares_limit,
+                    commitments_retry_limit: config.da_config.retry_commitments_limit,
                 },
                 refresh_interval: config.da_config.subnets_refresh_interval,
             },

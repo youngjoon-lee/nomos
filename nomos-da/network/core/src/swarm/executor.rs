@@ -26,7 +26,7 @@ use crate::{
             executor::behaviour::DispersalExecutorEvent, validator::behaviour::DispersalEvent,
         },
         replication::behaviour::{ReplicationConfig, ReplicationEvent},
-        sampling::behaviour::{SamplingEvent, SubnetsConfig},
+        sampling::{SamplingEvent, SubnetsConfig},
     },
     swarm::{
         common::{
@@ -194,11 +194,18 @@ where
         self.swarm.listen_on(address)
     }
 
-    pub fn sample_request_channel(&mut self) -> UnboundedSender<BlobId> {
+    pub fn shares_request_channel(&mut self) -> UnboundedSender<BlobId> {
         self.swarm
             .behaviour()
             .sampling_behaviour()
-            .sample_request_channel()
+            .shares_request_channel()
+    }
+
+    pub fn commitments_request_channel(&mut self) -> UnboundedSender<BlobId> {
+        self.swarm
+            .behaviour()
+            .sampling_behaviour()
+            .commitments_request_channel()
     }
 
     pub fn dispersal_shares_channel(
@@ -377,5 +384,9 @@ where
                 }
             }
         }
+    }
+
+    pub fn strong_count(&self) -> usize {
+        self.sampling_events_sender.strong_count()
     }
 }

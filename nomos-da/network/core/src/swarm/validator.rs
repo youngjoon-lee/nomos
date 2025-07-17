@@ -24,7 +24,7 @@ use crate::{
     protocols::{
         dispersal::validator::behaviour::DispersalEvent,
         replication::behaviour::{ReplicationConfig, ReplicationEvent},
-        sampling::behaviour::{SamplingEvent, SubnetsConfig},
+        sampling::{SamplingEvent, SubnetsConfig},
     },
     swarm::{
         common::{
@@ -196,11 +196,18 @@ where
         self.swarm.listen_on(address)
     }
 
-    pub fn sample_request_channel(&mut self) -> UnboundedSender<BlobId> {
+    pub fn shares_request_channel(&mut self) -> UnboundedSender<BlobId> {
         self.swarm
             .behaviour()
             .sampling_behaviour()
-            .sample_request_channel()
+            .shares_request_channel()
+    }
+
+    pub fn commitments_request_channel(&mut self) -> UnboundedSender<BlobId> {
+        self.swarm
+            .behaviour()
+            .sampling_behaviour()
+            .commitments_request_channel()
     }
 
     pub fn balancer_command_channel(
