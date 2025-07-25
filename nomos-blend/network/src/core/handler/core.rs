@@ -11,14 +11,14 @@ use libp2p::{
         handler::{
             ConnectionEvent, DialUpgradeError, FullyNegotiatedInbound, FullyNegotiatedOutbound,
         },
-        ConnectionHandler, ConnectionHandlerEvent, SubstreamProtocol,
+        ConnectionHandlerEvent, SubstreamProtocol,
     },
     Stream, StreamProtocol,
 };
 
 use crate::{
-    conn_maintenance::{ConnectionMonitor, ConnectionMonitorOutput},
-    handler::{recv_msg, send_msg, PROTOCOL_NAME},
+    core::conn_maintenance::{ConnectionMonitor, ConnectionMonitorOutput},
+    recv_msg, send_msg, PROTOCOL_NAME,
 };
 
 // Metrics
@@ -27,7 +27,7 @@ const VALUE_FULLY_NEGOTIATED_OUTBOUND: &str = "fully_negotiated_outbound";
 const VALUE_DIAL_UPGRADE_ERROR: &str = "dial_upgrade_error";
 const VALUE_IGNORED: &str = "ignored";
 
-pub struct CoreToCoreBlendConnectionHandler<ConnectionWindowClock> {
+pub struct ConnectionHandler<ConnectionWindowClock> {
     inbound_substream: Option<InboundSubstreamState>,
     outbound_substream: Option<OutboundSubstreamState>,
     outbound_msgs: VecDeque<Vec<u8>>,
@@ -57,7 +57,7 @@ enum OutboundSubstreamState {
     Dropped,
 }
 
-impl<ConnectionWindowClock> CoreToCoreBlendConnectionHandler<ConnectionWindowClock> {
+impl<ConnectionWindowClock> ConnectionHandler<ConnectionWindowClock> {
     pub const fn new(monitor: ConnectionMonitor<ConnectionWindowClock>) -> Self {
         Self {
             inbound_substream: None,
@@ -126,8 +126,8 @@ pub enum ToBehaviour {
     IOError(io::Error),
 }
 
-impl<ConnectionWindowClock> ConnectionHandler
-    for CoreToCoreBlendConnectionHandler<ConnectionWindowClock>
+impl<ConnectionWindowClock> libp2p::swarm::ConnectionHandler
+    for ConnectionHandler<ConnectionWindowClock>
 where
     ConnectionWindowClock: futures::Stream<Item = RangeInclusive<u64>> + Unpin + Send + 'static,
 {
