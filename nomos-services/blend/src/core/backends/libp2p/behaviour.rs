@@ -50,6 +50,7 @@ impl BlendBehaviour {
                 },
                 observation_window_interval_provider,
                 Some(config.membership()),
+                config.backend.peer_id(),
             ),
             limits: libp2p::connection_limits::Behaviour::new(
                 ConnectionLimits::default()
@@ -66,9 +67,7 @@ impl BlendBehaviour {
                             as u32,
                     ))
                     // Max established outgoing = max core peering degree.
-                    .with_max_established_outgoing(Some(maximum_core_peering_degree as u32))
-                    // Blend protocol restricts the number of connections per peer to 1.
-                    .with_max_established_per_peer(Some(1)),
+                    .with_max_established_outgoing(Some(maximum_core_peering_degree as u32)),
             ),
             blocked_peers: libp2p::allow_block_list::Behaviour::default(),
         }
