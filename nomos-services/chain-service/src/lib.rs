@@ -431,7 +431,7 @@ where
         + Sync
         + 'static,
     NetAdapter::Settings: Send + Sync + 'static,
-    NetAdapter::PeerId: Clone + Eq + Hash + Copy + Debug + Send + Sync + 'static,
+    NetAdapter::PeerId: Clone + Eq + Hash + Copy + Debug + Send + Sync + Unpin + 'static,
     BlendService: ServiceData<
             Message = nomos_blend_service::message::ServiceMessage<
                 <BlendService as BlendServiceExt>::BroadcastSettings,
@@ -452,6 +452,7 @@ where
         + DeserializeOwned
         + Send
         + Sync
+        + Unpin
         + 'static,
     ClPool::Key: Debug + Send + Sync,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
@@ -474,6 +475,7 @@ where
         + DeserializeOwned
         + Send
         + Sync
+        + Unpin
         + 'static,
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key> + Send + Sync + 'static,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
