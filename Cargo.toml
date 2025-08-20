@@ -48,8 +48,9 @@ members = [
   "zk/circuits/prover",
   "zk/circuits/utils",
   "zk/circuits/verifier",
+  "zk/circuits/witness_generators/core",
+  "zk/circuits/witness_generators/pol",
   "zk/groth16",
-  "zk/mantle-proofs/pol",
 ]
 resolver = "2"
 
@@ -58,7 +59,6 @@ resolver = "2"
 bundler                  = { path = "./nomos-bundler" }
 cfgsync                  = { path = "./testnet/cfgsync" }
 chain-service            = { path = "./nomos-services/chain-service" }
-circuits-pol             = { path = "zk/mantle-proofs/pol" }
 circuits-prover          = { path = "zk/circuits/prover" }
 circuits-utils           = { path = "zk/circuits/utils" }
 circuits-verifier        = { path = "zk/circuits/verifier" }
@@ -100,10 +100,12 @@ nomos-tracing            = { path = "./nomos-tracing" }
 nomos-tracing-service    = { path = "./nomos-services/tracing" }
 nomos-utils              = { path = "./nomos-utils" }
 nomos_proof_statements   = { path = "./nomos-core/proof_statements" }
+pol-witness-generator    = { path = "zk/circuits/witness_generators/pol" }
 services-utils           = { path = "./nomos-services/utils" }
 subnetworks-assignations = { path = "./nomos-da/network/subnetworks-assignations" }
 tests                    = { path = "./tests" }
 utxotree                 = { path = "./utxotree" }
+witness-generator-core   = { path = "./zk/circuits/witness_generators/core" }
 
 # External
 blake2            = "0.10"
