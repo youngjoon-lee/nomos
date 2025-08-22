@@ -55,9 +55,10 @@ pub struct ExecutorEventsStream {
 }
 pub struct ExecutorSwarm<Membership, HistoricMembership, Addressbook>
 where
-    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + 'static,
+    Membership:
+        MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync + 'static,
     HistoricMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + 'static,
-    Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
+    Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + Sync + 'static,
 {
     swarm: Swarm<
         ExecutorBehaviour<
@@ -76,9 +77,9 @@ where
 impl<Membership, HistoricMembership, Addressbook>
     ExecutorSwarm<Membership, HistoricMembership, Addressbook>
 where
-    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
+    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync,
     HistoricMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
-    Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
+    Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + Sync + 'static,
 {
     pub fn new(
         key: Keypair,
