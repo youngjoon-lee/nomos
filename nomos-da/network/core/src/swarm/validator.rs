@@ -1,7 +1,6 @@
 use std::{collections::HashSet, io, marker::PhantomData, time::Duration};
 
 use futures::{stream, StreamExt as _};
-use kzgrs_backend::common::share::DaShare;
 use libp2p::{
     core::transport::ListenerId,
     identity::Keypair,
@@ -17,6 +16,7 @@ use tokio::{
 };
 use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
 
+use super::DispersalValidatorEvent;
 use crate::{
     addressbook::AddressBookHandler,
     behaviour::validator::{ValidatorBehaviour, ValidatorBehaviourEvent},
@@ -59,7 +59,7 @@ pub struct SwarmSettings {
 
 pub struct ValidatorEventsStream {
     pub sampling_events_receiver: UnboundedReceiverStream<SamplingEvent>,
-    pub validation_events_receiver: UnboundedReceiverStream<DaShare>,
+    pub validation_events_receiver: UnboundedReceiverStream<DispersalValidatorEvent>,
 }
 
 pub struct ValidatorSwarm<Membership, HistoricMembership, Addressbook>
@@ -78,7 +78,8 @@ where
         >,
     >,
     sampling_events_sender: UnboundedSender<SamplingEvent>,
-    validation_events_sender: UnboundedSender<DaShare>,
+    validation_events_sender: UnboundedSender<DispersalValidatorEvent>,
+    membership: Membership,
     phantom: PhantomData<HistoricMembership>,
 }
 
@@ -132,7 +133,7 @@ where
             Self {
                 swarm: Self::build_swarm(
                     key,
-                    membership,
+                    membership.clone(),
                     addressbook,
                     balancer,
                     monitor,
@@ -143,6 +144,7 @@ where
                 ),
                 sampling_events_sender,
                 validation_events_sender,
+                membership,
                 phantom: PhantomData,
             },
             ValidatorEventsStream {
@@ -297,7 +299,13 @@ where
             self.swarm.behaviour_mut().monitor_behaviour_mut(),
             MonitorEvent::from(&event),
         );
-        handle_replication_event(&self.validation_events_sender, event).await;
+        handle_replication_event(
+            &self.validation_events_sender,
+            &self.membership,
+            self.local_peer_id(),
+            event,
+        )
+        .await;
     }
 
     #[expect(
