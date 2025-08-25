@@ -35,9 +35,6 @@ use crate::{
 
 mod handler;
 
-#[cfg(feature = "tokio")]
-pub use self::handler::tokio::ObservationWindowTokioIntervalProvider;
-
 #[cfg(test)]
 mod tests;
 
@@ -57,6 +54,23 @@ pub struct RemotePeerConnectionDetails {
     negotiated_state: NegotiatedPeerState,
     /// The ID of the connection with the peer.
     connection_id: ConnectionId,
+}
+
+impl RemotePeerConnectionDetails {
+    #[must_use]
+    pub const fn role(&self) -> Endpoint {
+        self.role
+    }
+
+    #[must_use]
+    pub const fn negotiated_state(&self) -> NegotiatedPeerState {
+        self.negotiated_state
+    }
+
+    #[must_use]
+    pub const fn connection_id(&self) -> ConnectionId {
+        self.connection_id
+    }
 }
 
 /// A [`NetworkBehaviour`] that processes incoming Blend messages, and
@@ -245,7 +259,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
 
     /// Force send a message to a peer (without validating it first), as long as
     /// the peer is connected, no matter the state the connection is in.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "unsafe-test-functions"))]
     pub fn force_send_message_to_peer(
         &mut self,
         message: &EncapsulatedMessage,
@@ -298,7 +312,6 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         &self.exchanged_message_identifiers
     }
 
-    #[cfg(test)]
     pub const fn negotiated_peers(&self) -> &HashMap<PeerId, RemotePeerConnectionDetails> {
         &self.negotiated_peers
     }
