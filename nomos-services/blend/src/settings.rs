@@ -4,8 +4,10 @@ use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
     membership::{Membership, Node},
     message_blend::CryptographicProcessorSettings,
+    session::UninitializedSessionEventStream,
 };
 use serde::{Deserialize, Serialize};
+use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -64,15 +66,22 @@ impl TimingSettings {
     }
 }
 
+pub(crate) const FIRST_SESSION_READY_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// A stream that repeatedly yields the same membership at fixed intervals.
 /// The first item is yielded immediately.
 // TODO: Replace with SDP membership stream.
-pub(crate) fn constant_membership_stream<NodeId>(
+pub(crate) fn constant_session_stream<NodeId>(
     membership: Membership<NodeId>,
-    interval: Duration,
-) -> impl Stream<Item = Membership<NodeId>>
+    session_duration: Duration,
+    session_transition_period: Duration,
+) -> UninitializedSessionEventStream<impl Stream<Item = Membership<NodeId>> + Unpin>
 where
-    NodeId: Clone,
+    NodeId: Clone + Send + Sync + 'static,
 {
-    IntervalStream::new(tokio::time::interval(interval)).map(move |_| membership.clone())
+    UninitializedSessionEventStream::new(
+        Box::pin(IntervalStream::new(interval(session_duration)).map(move |_| membership.clone())),
+        FIRST_SESSION_READY_TIMEOUT,
+        session_transition_period,
+    )
 }
