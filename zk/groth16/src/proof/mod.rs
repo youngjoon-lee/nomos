@@ -1,6 +1,8 @@
 #[cfg(feature = "deser")]
 pub mod deserialize;
 
+use std::marker::PhantomData;
+
 #[cfg(feature = "deser")]
 use ark_bn254::Bn254;
 use ark_ec::pairing::Pairing;
@@ -21,10 +23,15 @@ pub struct Proof<E: Pairing> {
     pi_c: E::G1Affine,
 }
 
-pub struct CompressedProof {
-    pi_a: Vec<u8>,
-    pi_b: Vec<u8>,
-    pi_c: Vec<u8>,
+pub struct CompressedProof<
+    const G1_COMPRESSED_SIZE: usize,
+    const G2_COMPRESSED_SIZE: usize,
+    E: Pairing,
+> {
+    pub pi_a: [u8; G1_COMPRESSED_SIZE],
+    pub pi_b: [u8; G2_COMPRESSED_SIZE],
+    pub pi_c: [u8; G1_COMPRESSED_SIZE],
+    _pairing: PhantomData<E>,
 }
 
 impl<E: Pairing> From<&Proof<E>> for ark_groth16::Proof<E> {
@@ -63,28 +70,37 @@ impl TryFrom<ProofJsonDeser> for Proof<Bn254> {
     }
 }
 
-impl<E: Pairing> TryFrom<&Proof<E>> for CompressedProof {
+impl<const G1_COMPRESSED_SIZE: usize, const G2_COMPRESSED_SIZE: usize, E: Pairing>
+    TryFrom<&Proof<E>> for CompressedProof<G1_COMPRESSED_SIZE, G2_COMPRESSED_SIZE, E>
+{
     type Error = SerializationError;
     fn try_from(value: &Proof<E>) -> Result<Self, SerializationError> {
         let Proof { pi_a, pi_b, pi_c } = value;
-        let mut a = Vec::new();
-        let mut b = Vec::new();
-        let mut c = Vec::new();
-        pi_a.serialize_compressed(&mut a)?;
-        pi_b.serialize_compressed(&mut b)?;
-        pi_c.serialize_compressed(&mut c)?;
+        let mut a = [0u8; G1_COMPRESSED_SIZE];
+        let mut b = [0u8; G2_COMPRESSED_SIZE];
+        let mut c = [0u8; G1_COMPRESSED_SIZE];
+        pi_a.serialize_compressed(a.as_mut_slice())?;
+        pi_b.serialize_compressed(b.as_mut_slice())?;
+        pi_c.serialize_compressed(c.as_mut_slice())?;
         Ok(Self {
             pi_a: a,
             pi_b: b,
             pi_c: c,
+            _pairing: PhantomData,
         })
     }
 }
 
-impl<E: Pairing> TryFrom<&CompressedProof> for Proof<E> {
+impl<const G1_COMPRESSED_SIZE: usize, const G2_COMPRESSED_SIZE: usize, E: Pairing>
+    TryFrom<&CompressedProof<G1_COMPRESSED_SIZE, G2_COMPRESSED_SIZE, E>> for Proof<E>
+{
     type Error = SerializationError;
-    fn try_from(value: &CompressedProof) -> Result<Self, SerializationError> {
-        let CompressedProof { pi_a, pi_b, pi_c } = value;
+    fn try_from(
+        value: &CompressedProof<G1_COMPRESSED_SIZE, G2_COMPRESSED_SIZE, E>,
+    ) -> Result<Self, SerializationError> {
+        let CompressedProof {
+            pi_a, pi_b, pi_c, ..
+        } = value;
         let a = <E::G1Affine as CanonicalDeserialize>::deserialize_compressed(&pi_a[..])?;
         let b = <E::G2Affine as CanonicalDeserialize>::deserialize_compressed(&pi_b[..])?;
         let c = <E::G1Affine as CanonicalDeserialize>::deserialize_compressed(&pi_c[..])?;
