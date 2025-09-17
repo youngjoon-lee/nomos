@@ -13,7 +13,8 @@ use nomos_core::{
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_libp2p::PeerId;
 use nomos_membership::{
-    adapters::sdp::LedgerSdpAdapter, backends::mock::MockMembershipBackend, MembershipService,
+    adapters::sdp::ledger::LedgerSdpAdapter, backends::membership::PersistentMembershipBackend,
+    MembershipService,
 };
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
@@ -66,10 +67,17 @@ type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
     RuntimeServiceId,
 >;
 
+pub type DaMembershipStorage<RuntimeServiceId> =
+    nomos_membership::adapters::storage::rocksdb::MembershipRocksAdapter<
+        RocksBackend,
+        RuntimeServiceId,
+    >;
+
 type BlendMembershipAdapter<RuntimeServiceId> = nomos_blend_service::membership::service::Adapter<
     MembershipService<
-        MockMembershipBackend,
+        PersistentMembershipBackend<DaMembershipStorage<RuntimeServiceId>>,
         LedgerSdpAdapter<MockSdpBackend, Metadata, RuntimeServiceId>,
+        DaMembershipStorage<RuntimeServiceId>,
         RuntimeServiceId,
     >,
     PeerId,
