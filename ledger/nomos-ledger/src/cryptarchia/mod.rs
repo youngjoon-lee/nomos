@@ -1,11 +1,13 @@
 use cryptarchia_engine::{Epoch, Slot};
-use groth16::Fr;
+use groth16::{fr_from_bytes, fr_to_bytes, Fr};
 use nomos_core::{
     crypto::{Digest as _, Hasher, ZkHasher},
     mantle::{gas::GasConstants, AuthenticatedMantleTx, NoteId, Utxo, Value},
-    proofs::{leader_proof, zksig::ZkSignatureProof as _},
+    proofs::{
+        leader_proof::{self, LeaderPublic},
+        zksig::{ZkSignatureProof as _, ZkSignaturePublic},
+    },
 };
-use nomos_proof_statements::{leadership::LeaderPublic, zksig::ZkSignaturePublic};
 
 pub type UtxoTree = utxotree::UtxoTree<NoteId, Utxo, ZkHasher>;
 use super::{Balance, Config, LedgerError};
@@ -159,13 +161,14 @@ impl LedgerState {
         LeaderProof: leader_proof::LeaderProof,
     {
         assert_eq!(config.epoch(slot), self.epoch_state.epoch);
+        // TODO: horrible conversion hack to make it always fit, switch to native Fr
+        let epoch_nonce_fr =
+            fr_from_bytes(&self.epoch_state.nonce[..31]).expect("31 bytes fit in Fr");
         let public_inputs = LeaderPublic::new(
             self.aged_commitments().root(),
             self.latest_commitments().root(),
-            proof.entropy(),
-            self.epoch_state.nonce,
+            epoch_nonce_fr,
             slot.into(),
-            config.consensus_config.active_slot_coeff,
             self.epoch_state.total_stake,
         );
         if !proof.verify(&public_inputs) {
@@ -184,10 +187,11 @@ impl LedgerState {
     where
         LeaderProof: leader_proof::LeaderProof,
     {
+        let entropy_bytes = fr_to_bytes(&proof.entropy());
         Ok(self
             .update_epoch_state(slot, config)?
             .try_apply_proof(slot, proof, config)?
-            .update_nonce(proof.entropy(), slot))
+            .update_nonce(entropy_bytes, slot))
     }
 
     pub fn try_apply_tx<Id, Constants: GasConstants>(
@@ -321,7 +325,6 @@ pub mod tests {
     use std::num::NonZero;
 
     use cryptarchia_engine::EpochConfig;
-    use crypto_bigint::U256;
     use nomos_core::{
         mantle::{
             gas::MainnetGasConstants, ledger::Tx as LedgerTx, ops::leader_claim::VoucherCm,
@@ -347,15 +350,28 @@ pub mod tests {
         }
     }
 
-    pub struct DummyProof(pub LeaderPublic);
+    pub struct DummyProof {
+        pub public: LeaderPublic,
+        pub leader_key: ed25519_dalek::VerifyingKey,
+        pub voucher_cm: VoucherCm,
+    }
 
     impl LeaderProof for DummyProof {
         fn verify(&self, public_inputs: &LeaderPublic) -> bool {
-            &self.0 == public_inputs
+            &self.public == public_inputs
         }
 
-        fn entropy(&self) -> [u8; 32] {
-            self.0.entropy
+        fn entropy(&self) -> Fr {
+            // For dummy proof, return zero entropy
+            Fr::from(0u8)
+        }
+
+        fn leader_key(&self) -> &ed25519_dalek::VerifyingKey {
+            &self.leader_key
+        }
+
+        fn voucher_cm(&self) -> &VoucherCm {
+            &self.voucher_cm
         }
     }
 
@@ -373,9 +389,8 @@ pub mod tests {
             .cryptarchia_ledger
             .update_epoch_state::<HeaderId>(slot, ledger.config())
             .unwrap();
-        let config = ledger.config();
         let id = make_id(parent, slot, utxo);
-        let proof = generate_proof(&ledger_state, &utxo, slot, config);
+        let proof = generate_proof(&ledger_state, &utxo, slot);
         *ledger = ledger.try_update::<_, MainnetGasConstants>(
             id,
             parent,
@@ -398,34 +413,33 @@ pub mod tests {
 
     // produce a proof for a note
     #[must_use]
-    pub fn generate_proof(
-        ledger_state: &LedgerState,
-        utxo: &Utxo,
-        slot: Slot,
-        config: &Config,
-    ) -> DummyProof {
+    pub fn generate_proof(ledger_state: &LedgerState, utxo: &Utxo, slot: Slot) -> DummyProof {
         let latest_tree = ledger_state.latest_commitments();
         let aged_tree = ledger_state.aged_commitments();
-
-        DummyProof(LeaderPublic::new(
-            if aged_tree.contains(&utxo.id()) {
-                aged_tree.root()
-            } else {
-                println!("Note not found in latest commitments, using zero root");
-                BigUint::from(0u8).into()
-            },
-            if latest_tree.contains(&utxo.id()) {
-                latest_tree.root()
-            } else {
-                println!("Note not found in latest commitments, using zero root");
-                BigUint::from(0u8).into()
-            },
-            [1; 32],
-            ledger_state.epoch_state.nonce,
-            slot.into(),
-            config.consensus_config.active_slot_coeff,
-            ledger_state.epoch_state.total_stake,
-        ))
+        // TODO: horrible conversion hack to make it always fit, switch to native Fr
+        let epoch_nonce_fr =
+            fr_from_bytes(&ledger_state.epoch_state.nonce[..31]).expect("31 bytes fit in Fr");
+        DummyProof {
+            public: LeaderPublic::new(
+                if aged_tree.contains(&utxo.id()) {
+                    aged_tree.root()
+                } else {
+                    println!("Note not found in aged commitments, using zero root");
+                    Fr::from(0u8)
+                },
+                if latest_tree.contains(&utxo.id()) {
+                    latest_tree.root()
+                } else {
+                    println!("Note not found in latest commitments, using zero root");
+                    Fr::from(0u8)
+                },
+                epoch_nonce_fr,
+                slot.into(),
+                ledger_state.epoch_state.total_stake,
+            ),
+            leader_key: ed25519_dalek::VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
+            voucher_cm: VoucherCm::default(),
+        }
     }
 
     #[must_use]
@@ -649,14 +663,20 @@ pub mod tests {
         let (ledger, genesis) = ledger(&[utxo]);
         let ledger_state = ledger.state(&genesis).unwrap().clone().cryptarchia_ledger;
         let slot = Slot::genesis() + 1;
-        let proof = DummyProof(LeaderPublic {
-            aged_root: BigUint::from(1u8).into(), // Invalid aged root
-            latest_root: ledger_state.latest_commitments().root(),
-            epoch_nonce: ledger_state.epoch_state.nonce,
-            slot: slot.into(),
-            entropy: [1; 32],
-            scaled_phi_approx: (U256::from(1u32), U256::from(1u32)),
-        });
+        // TODO: horrible conversion hack to make it always fit, switch to native Fr
+        let epoch_nonce_fr =
+            fr_from_bytes(&ledger_state.epoch_state.nonce[..31]).expect("31 bytes fit in Fr");
+        let proof = DummyProof {
+            public: LeaderPublic {
+                aged_root: Fr::from(0u8), // Invalid aged root
+                latest_root: ledger_state.latest_commitments().root(),
+                epoch_nonce: epoch_nonce_fr,
+                slot: slot.into(),
+                total_stake: ledger_state.epoch_state.total_stake,
+            },
+            leader_key: ed25519_dalek::VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
+            voucher_cm: VoucherCm::default(),
+        };
         let update_err = ledger_state
             .try_apply_proof::<_, ()>(slot, &proof, ledger.config())
             .err();
@@ -670,14 +690,20 @@ pub mod tests {
         let (ledger, genesis) = ledger(&[utxo]);
         let ledger_state = ledger.state(&genesis).unwrap().clone().cryptarchia_ledger;
         let slot = Slot::genesis() + 1;
-        let proof = DummyProof(LeaderPublic {
-            aged_root: ledger_state.aged_commitments().root(),
-            latest_root: BigUint::from(1u8).into(), // Invalid latest root
-            epoch_nonce: ledger_state.epoch_state.nonce,
-            slot: slot.into(),
-            entropy: [1; 32],
-            scaled_phi_approx: (U256::from(1u32), U256::from(1u32)),
-        });
+        // TODO: horrible conversion hack to make it always fit, switch to native Fr
+        let epoch_nonce_fr =
+            fr_from_bytes(&ledger_state.epoch_state.nonce[..31]).expect("31 bytes fit in Fr");
+        let proof = DummyProof {
+            public: LeaderPublic {
+                aged_root: ledger_state.aged_commitments().root(),
+                latest_root: BigUint::from(1u8).into(), // Invalid latest root
+                epoch_nonce: epoch_nonce_fr,
+                slot: slot.into(),
+                total_stake: ledger_state.epoch_state.total_stake,
+            },
+            leader_key: ed25519_dalek::VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
+            voucher_cm: VoucherCm::default(),
+        };
         let update_err = ledger_state
             .try_apply_proof::<_, ()>(slot, &proof, ledger.config())
             .err();
