@@ -5,17 +5,16 @@ use std::{
 
 use either::Either;
 use futures::{
-    future::{BoxFuture, Fuse, OptionFuture},
     FutureExt as _,
+    future::{BoxFuture, Fuse, OptionFuture},
 };
 use libp2p::{
-    autonat,
-    core::{transport::PortUse, Endpoint},
+    Multiaddr, PeerId, autonat,
+    core::{Endpoint, transport::PortUse},
     swarm::{
         ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
         THandlerOutEvent, ToSwarm,
     },
-    Multiaddr, PeerId,
 };
 use rand::RngCore;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -24,7 +23,7 @@ use tracing::{error, info};
 use crate::{
     behaviour::nat::{
         address_mapper,
-        address_mapper::{protocols::ProtocolManager, AddressMapperBehaviour, NatMapper},
+        address_mapper::{AddressMapperBehaviour, NatMapper, protocols::ProtocolManager},
         gateway_monitor::{
             GatewayDetector, GatewayMonitor, GatewayMonitorEvent, SystemGatewayDetector,
         },
@@ -206,12 +205,11 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if let Poll::Ready(to_swarm) = self.autonat_client_behaviour.poll(cx) {
-            if let ToSwarm::GenerateEvent(event) = &to_swarm {
-                if let Some(ref local_addr) = self.local_address {
-                    if &event.tested_addr == local_addr {
-                        self.state_machine.on_event(event);
-                    }
-                }
+            if let ToSwarm::GenerateEvent(event) = &to_swarm
+                && let Some(ref local_addr) = self.local_address
+                && &event.tested_addr == local_addr
+            {
+                self.state_machine.on_event(event);
             }
 
             return Poll::Ready(to_swarm.map_out(Either::Left));

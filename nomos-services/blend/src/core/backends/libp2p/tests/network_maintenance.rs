@@ -12,7 +12,7 @@ use crate::{
         BlendBehaviourBuilder, SwarmBuilder, SwarmExt as _, TestSwarm,
     },
     test_utils::{
-        crypto::MockProofsVerifier, membership::mock_session_info, TestEncapsulatedMessage,
+        TestEncapsulatedMessage, crypto::MockProofsVerifier, membership::mock_session_info,
     },
 };
 
@@ -206,19 +206,23 @@ async fn on_malicious_peer() {
     }
 
     // We check that the malicious peer has been blacklisted.
-    assert!(listening_swarm
-        .behaviour()
-        .blocked_peers
-        .blocked_peers()
-        .contains(malicious_swarm.local_peer_id()));
+    assert!(
+        listening_swarm
+            .behaviour()
+            .blocked_peers
+            .blocked_peers()
+            .contains(malicious_swarm.local_peer_id())
+    );
 
     // We check that the malicious peer has no entry in the set of negotiated peers.
-    assert!(!listening_swarm
-        .behaviour()
-        .blend
-        .with_core()
-        .negotiated_peers()
-        .contains_key(malicious_swarm.local_peer_id()));
+    assert!(
+        !listening_swarm
+            .behaviour()
+            .blend
+            .with_core()
+            .negotiated_peers()
+            .contains_key(malicious_swarm.local_peer_id())
+    );
 
     // We check that the other swarm has a negotiated connection with the listening
     // swarm.

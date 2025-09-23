@@ -1,4 +1,4 @@
-use ed25519_dalek::{ed25519::signature::Signer as _, Verifier as _};
+use ed25519_dalek::{Verifier as _, ed25519::signature::Signer as _};
 use nomos_utils::blake_rng::{BlakeRng, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 

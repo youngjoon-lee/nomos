@@ -1,14 +1,14 @@
 use std::{hash::Hash, marker::PhantomData};
 
 use nomos_blend_scheduling::message_blend::{
-    crypto::send::SessionCryptographicProcessor, ProofsGenerator as ProofsGeneratorTrait,
+    ProofsGenerator as ProofsGeneratorTrait, crypto::send::SessionCryptographicProcessor,
 };
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::overwatch::OverwatchHandle;
 use rand::SeedableRng as _;
 
 use crate::{
-    edge::{backends::BlendBackend, Settings, LOG_TARGET},
+    edge::{LOG_TARGET, Settings, backends::BlendBackend},
     session::SessionInfo,
 };
 
@@ -76,7 +76,7 @@ where
 impl<Backend, NodeId, ProofsGenerator, RuntimeServiceId>
     MessageHandler<Backend, NodeId, ProofsGenerator, RuntimeServiceId>
 where
-    NodeId: Eq + Hash + Clone + Send,
+    NodeId: Eq + Hash + Clone + Send + 'static,
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
     ProofsGenerator: ProofsGeneratorTrait,
 {

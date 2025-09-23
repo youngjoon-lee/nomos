@@ -3,31 +3,31 @@ use core::{
     ops::{Deref, RangeInclusive},
 };
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     time::Duration,
 };
 
 use futures::{Stream, StreamExt as _};
 use libp2p::{
-    swarm::{dial_opts::PeerCondition, ConnectionId},
     Multiaddr, PeerId, Swarm, SwarmBuilder,
+    swarm::{ConnectionId, dial_opts::PeerCondition},
 };
 use nomos_blend_message::encap::{
-    encapsulated::PoQVerificationInputMinusSigningKey, ProofsVerifier as ProofsVerifierTrait,
+    ProofsVerifier as ProofsVerifierTrait, encapsulated::PoQVerificationInputMinusSigningKey,
 };
 use nomos_blend_network::core::{
+    NetworkBehaviourEvent,
     with_core::behaviour::{Event as CoreToCoreEvent, IntervalStreamProvider, NegotiatedPeerState},
     with_edge::behaviour::Event as CoreToEdgeEvent,
-    NetworkBehaviourEvent,
 };
 use nomos_blend_scheduling::{
+    EncapsulatedMessage,
     membership::Membership,
     message_blend::crypto::{
         IncomingEncapsulatedMessageWithValidatedPublicHeader,
         OutgoingEncapsulatedMessageWithValidatedPublicHeader,
     },
     session::SessionEvent,
-    EncapsulatedMessage,
 };
 use nomos_libp2p::{DialOpts, SwarmEvent};
 use rand::RngCore;
@@ -35,11 +35,11 @@ use tokio::sync::{broadcast, mpsc};
 
 use crate::core::{
     backends::{
-        libp2p::{
-            behaviour::{BlendBehaviour, BlendBehaviourEvent},
-            Libp2pBlendBackendSettings, LOG_TARGET,
-        },
         SessionInfo,
+        libp2p::{
+            LOG_TARGET, Libp2pBlendBackendSettings,
+            behaviour::{BlendBehaviour, BlendBehaviourEvent},
+        },
     },
     settings::BlendConfig,
 };

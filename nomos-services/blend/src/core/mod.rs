@@ -5,7 +5,6 @@ pub mod settings;
 
 use std::{
     fmt::{Debug, Display},
-    future::Future,
     hash::Hash,
     marker::PhantomData,
     time::Duration,
@@ -14,32 +13,32 @@ use std::{
 use async_trait::async_trait;
 use backends::BlendBackend;
 use fork_stream::StreamExt as _;
-use futures::{future::join_all, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _, future::join_all};
 use network::NetworkAdapter;
 use nomos_blend_message::{
-    crypto::random_sized_bytes,
-    encap::{decapsulated::DecapsulationOutput, ProofsVerifier as ProofsVerifierTrait},
     PayloadType,
+    crypto::random_sized_bytes,
+    encap::{ProofsVerifier as ProofsVerifierTrait, decapsulated::DecapsulationOutput},
 };
 use nomos_blend_scheduling::{
     message_blend::{
-        crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
         ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo,
+        crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
     },
-    message_scheduler::{round_info::RoundInfo, MessageScheduler},
+    message_scheduler::{MessageScheduler, round_info::RoundInfo},
     session::{SessionEvent, UninitializedSessionEventStream},
 };
 use nomos_core::codec::SerdeOp;
 use nomos_network::NetworkService;
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
-    services::{
-        state::{NoOperator, NoState},
-        AsServiceId, ServiceCore, ServiceData,
-    },
     OpaqueServiceResourcesHandle,
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
+    },
 };
-use rand::{seq::SliceRandom as _, RngCore, SeedableRng as _};
+use rand::{RngCore, SeedableRng as _, seq::SliceRandom as _};
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use tracing::info;
@@ -84,15 +83,8 @@ pub struct BlendService<
     _phantom: PhantomData<(Backend, MembershipAdapter, ProofsGenerator)>,
 }
 
-impl<
-        Backend,
-        NodeId,
-        Network,
-        MembershipAdapter,
-        ProofsGenerator,
-        ProofsVerifier,
-        RuntimeServiceId,
-    > ServiceData
+impl<Backend, NodeId, Network, MembershipAdapter, ProofsGenerator, ProofsVerifier, RuntimeServiceId>
+    ServiceData
     for BlendService<
         Backend,
         NodeId,
@@ -113,15 +105,8 @@ where
 }
 
 #[async_trait]
-impl<
-        Backend,
-        NodeId,
-        Network,
-        MembershipAdapter,
-        ProofsGenerator,
-        ProofsVerifier,
-        RuntimeServiceId,
-    > ServiceCore<RuntimeServiceId>
+impl<Backend, NodeId, Network, MembershipAdapter, ProofsGenerator, ProofsVerifier, RuntimeServiceId>
+    ServiceCore<RuntimeServiceId>
     for BlendService<
         Backend,
         NodeId,
@@ -403,7 +388,7 @@ async fn handle_local_data_message<
     backend: &Backend,
     scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
 ) where
-    NodeId: Eq + Hash + Send,
+    NodeId: Eq + Hash + Send + 'static,
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
     BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Send,
@@ -443,6 +428,7 @@ fn handle_incoming_blend_message<
     scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
     cryptographic_processor: &CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
 ) where
+    NodeId: 'static,
     BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Send,
     ProofsVerifier: ProofsVerifierTrait,
 {
@@ -507,7 +493,7 @@ async fn handle_release_round<
     backend: &Backend,
     network_adapter: &NetAdapter,
 ) where
-    NodeId: Eq + Hash,
+    NodeId: Eq + Hash + 'static,
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
     ProofsGenerator: ProofsGeneratorTrait,

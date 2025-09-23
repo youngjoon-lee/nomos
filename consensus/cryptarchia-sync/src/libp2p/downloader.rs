@@ -5,6 +5,7 @@ use tokio::{sync::oneshot, time, time::Duration};
 use tracing::error;
 
 use crate::{
+    DownloadBlocksRequest, GetTipResponse,
     libp2p::{
         behaviour::{BlocksRequestStream, BoxedStream, TipRequestStream},
         errors::{ChainSyncError, ChainSyncErrorKind},
@@ -13,7 +14,6 @@ use crate::{
         utils::{self, open_stream, send_message},
     },
     messages::SerialisedBlock,
-    DownloadBlocksRequest, GetTipResponse,
 };
 
 pub struct Downloader;

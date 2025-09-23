@@ -7,24 +7,24 @@ use core::{
 
 use groth16::Field as _;
 use libp2p::{
-    identity::{ed25519::PublicKey, Keypair},
     PeerId, StreamProtocol, Swarm,
+    identity::{Keypair, ed25519::PublicKey},
 };
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
+    PayloadType,
     crypto::{
         keys::Ed25519PrivateKey,
         proofs::{
-            quota::{inputs::prove::PublicInputs, ProofOfQuota},
-            selection::{inputs::VerifyInputs, ProofOfSelection},
+            quota::{ProofOfQuota, inputs::prove::PublicInputs},
+            selection::{ProofOfSelection, inputs::VerifyInputs},
         },
-        signatures::{Signature, SIGNATURE_SIZE},
+        signatures::{SIGNATURE_SIZE, Signature},
     },
-    encap::{encapsulated::PoQVerificationInputMinusSigningKey, ProofsVerifier},
+    encap::{ProofsVerifier, encapsulated::PoQVerificationInputMinusSigningKey},
     input::EncapsulationInput,
-    PayloadType,
 };
-use nomos_blend_scheduling::{message_blend::crypto::EncapsulationInputs, EncapsulatedMessage};
+use nomos_blend_scheduling::{EncapsulatedMessage, message_blend::crypto::EncapsulationInputs};
 use nomos_core::crypto::ZkHash;
 use nomos_libp2p::NetworkBehaviour;
 

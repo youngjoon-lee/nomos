@@ -1,7 +1,7 @@
 use nomos_utils::blake_rng::BlakeRng;
 
 use crate::{
-    core::{backends::BlendBackend, BlendService},
+    core::{BlendService, backends::BlendBackend},
     message::ServiceMessage,
 };
 
@@ -16,15 +16,8 @@ pub trait ServiceComponents<RuntimeServiceId> {
     type ProofsGenerator;
 }
 
-impl<
-        Backend,
-        NodeId,
-        Network,
-        MembershipAdapter,
-        ProofsGenerator,
-        ProofsVerifier,
-        RuntimeServiceId,
-    > ServiceComponents<RuntimeServiceId>
+impl<Backend, NodeId, Network, MembershipAdapter, ProofsGenerator, ProofsVerifier, RuntimeServiceId>
+    ServiceComponents<RuntimeServiceId>
     for BlendService<
         Backend,
         NodeId,

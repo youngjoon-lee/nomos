@@ -3,15 +3,15 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures::{future::BoxFuture, AsyncWriteExt as _, FutureExt as _, StreamExt as _};
+use futures::{AsyncWriteExt as _, FutureExt as _, StreamExt as _, future::BoxFuture};
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
+    Multiaddr, PeerId, Stream as Libp2pStream, Stream, StreamProtocol,
+    core::{Endpoint, transport::PortUse},
     futures::stream::FuturesUnordered,
     swarm::{
         ConnectionDenied, ConnectionHandler, ConnectionId, FromSwarm, NetworkBehaviour,
         THandlerInEvent, ToSwarm,
     },
-    Multiaddr, PeerId, Stream as Libp2pStream, Stream, StreamProtocol,
 };
 use libp2p_stream::{Behaviour as StreamBehaviour, Control, IncomingStreams};
 use nomos_core::header::HeaderId;
@@ -19,15 +19,15 @@ use tokio::sync::{mpsc, mpsc::Sender, oneshot};
 use tracing::{debug, error};
 
 use crate::{
+    BlocksResponse, DownloadBlocksRequest, TipResponse,
     config::Config,
     libp2p::{
         downloader::Downloader,
         errors::ChainSyncError,
         messages::RequestMessage,
-        provider::{Provider, ReceivingRequestStream, MAX_ADDITIONAL_BLOCKS},
+        provider::{MAX_ADDITIONAL_BLOCKS, Provider, ReceivingRequestStream},
     },
     messages::{GetTipResponse, SerialisedBlock},
-    BlocksResponse, DownloadBlocksRequest, TipResponse,
 };
 
 /// Cryptarchia networking protocol for synchronizing blocks.
@@ -514,23 +514,23 @@ mod tests {
 
     use cryptarchia_engine::Slot;
     use futures::StreamExt as _;
-    use libp2p::{bytes::Bytes, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
+    use libp2p::{Multiaddr, PeerId, Swarm, bytes::Bytes, swarm::SwarmEvent};
     use libp2p_swarm_test::SwarmExt as _;
     use nomos_core::header::HeaderId;
-    use rand::{thread_rng, Rng};
+    use rand::{Rng, thread_rng};
     use tokio::sync::oneshot;
 
     use crate::{
+        BlocksResponse, DynError,
+        GetTipResponse::Tip,
+        ProviderResponse, TipResponse,
         config::Config,
         libp2p::{
             behaviour::{Behaviour, BoxedStream, Event, MAX_INCOMING_REQUESTS},
             errors::{ChainSyncError, ChainSyncErrorKind},
             provider::MAX_ADDITIONAL_BLOCKS,
         },
-        messages::GetTipResponse,
-        BlocksResponse, DynError,
-        GetTipResponse::Tip,
-        ProviderResponse, SerialisedBlock, TipResponse,
+        messages::{GetTipResponse, SerialisedBlock},
     };
 
     #[tokio::test]

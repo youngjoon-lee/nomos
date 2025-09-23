@@ -1,6 +1,6 @@
 use core::time::Duration;
 
-use futures::{select, StreamExt as _};
+use futures::{StreamExt as _, select};
 use libp2p::PeerId;
 use libp2p_stream::Behaviour as StreamBehaviour;
 use libp2p_swarm_test::SwarmExt as _;
@@ -11,11 +11,11 @@ use test_log::test;
 use crate::{
     core::{
         tests::utils::{
-            default_poq_verification_inputs, AlwaysTrueVerifier, TestEncapsulatedMessage, TestSwarm,
+            AlwaysTrueVerifier, TestEncapsulatedMessage, TestSwarm, default_poq_verification_inputs,
         },
         with_edge::behaviour::{
-            tests::utils::{BehaviourBuilder, StreamBehaviourExt as _},
             Event,
+            tests::utils::{BehaviourBuilder, StreamBehaviourExt as _},
         },
     },
     send_msg,

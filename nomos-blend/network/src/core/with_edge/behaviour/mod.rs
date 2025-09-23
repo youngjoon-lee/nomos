@@ -9,13 +9,13 @@ use std::{
 
 use either::Either;
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
-    swarm::{
-        dummy::ConnectionHandler as DummyConnectionHandler, ConnectionClosed, ConnectionDenied,
-        ConnectionId, FromSwarm, NetworkBehaviour, NotifyHandler, THandler, THandlerInEvent,
-        THandlerOutEvent, ToSwarm,
-    },
     Multiaddr, PeerId, StreamProtocol,
+    core::{Endpoint, transport::PortUse},
+    swarm::{
+        ConnectionClosed, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour,
+        NotifyHandler, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+        dummy::ConnectionHandler as DummyConnectionHandler,
+    },
 };
 use nomos_blend_message::encap::{self, encapsulated::PoQVerificationInputMinusSigningKey};
 use nomos_blend_scheduling::{

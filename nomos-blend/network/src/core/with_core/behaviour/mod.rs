@@ -1,6 +1,6 @@
 use core::{mem, num::NonZeroUsize};
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
     convert::Infallible,
     ops::RangeInclusive,
     task::{Context, Poll, Waker},
@@ -9,32 +9,32 @@ use std::{
 use either::Either;
 use futures::Stream;
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
-    swarm::{
-        dummy::ConnectionHandler as DummyConnectionHandler, ConnectionClosed, ConnectionDenied,
-        ConnectionId, FromSwarm, NetworkBehaviour, NotifyHandler, THandler, THandlerInEvent,
-        THandlerOutEvent, ToSwarm,
-    },
     Multiaddr, PeerId, StreamProtocol,
+    core::{Endpoint, transport::PortUse},
+    swarm::{
+        ConnectionClosed, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour,
+        NotifyHandler, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+        dummy::ConnectionHandler as DummyConnectionHandler,
+    },
 };
 use nomos_blend_message::{
-    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey},
     MessageIdentifier,
+    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey},
 };
 use nomos_blend_scheduling::{
-    deserialize_encapsulated_message,
+    EncapsulatedMessage, deserialize_encapsulated_message,
     membership::Membership,
     message_blend::crypto::{
         IncomingEncapsulatedMessageWithValidatedPublicHeader,
         OutgoingEncapsulatedMessageWithValidatedPublicHeader,
     },
-    serialize_encapsulated_message, EncapsulatedMessage,
+    serialize_encapsulated_message,
 };
 
 use crate::core::with_core::{
     behaviour::{
         handler::{
-            conn_maintenance::ConnectionMonitor, ConnectionHandler, FromBehaviour, ToBehaviour,
+            ConnectionHandler, FromBehaviour, ToBehaviour, conn_maintenance::ConnectionMonitor,
         },
         old_session::OldSession,
     },
@@ -271,10 +271,10 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         message: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
         except: (PeerId, ConnectionId),
     ) -> Result<(), Error> {
-        if let Some(old_session) = &mut self.old_session {
-            if old_session.forward_validated_message(message, &except)? {
-                return Ok(());
-            }
+        if let Some(old_session) = &mut self.old_session
+            && old_session.forward_validated_message(message, &except)?
+        {
+            return Ok(());
         }
         self.forward_validated_message_and_maybe_exclude(message, Some(except.0))
     }
@@ -669,13 +669,12 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         if let Some(prev_state) = self.update_state_for_negotiated_peer(
             (peer_id, connection_id),
             NegotiatedPeerState::Unhealthy,
-        ) {
-            if prev_state != NegotiatedPeerState::Unhealthy {
-                tracing::debug!(target: LOG_TARGET, "Peer {peer_id:?} has been marked as unhealthy.");
-                self.events
-                    .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(peer_id)));
-                self.try_wake();
-            }
+        ) && prev_state != NegotiatedPeerState::Unhealthy
+        {
+            tracing::debug!(target: LOG_TARGET, "Peer {peer_id:?} has been marked as unhealthy.");
+            self.events
+                .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(peer_id)));
+            self.try_wake();
         }
     }
 
@@ -686,13 +685,12 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         if let Some(prev_state) = self.update_state_for_negotiated_peer(
             (peer_id, connection_id),
             NegotiatedPeerState::Healthy,
-        ) {
-            if prev_state != NegotiatedPeerState::Healthy {
-                tracing::debug!(target: LOG_TARGET, "Peer {peer_id:?} has been marked as healthy.");
-                self.events
-                    .push_back(ToSwarm::GenerateEvent(Event::HealthyPeer(peer_id)));
-                self.try_wake();
-            }
+        ) && prev_state != NegotiatedPeerState::Healthy
+        {
+            tracing::debug!(target: LOG_TARGET, "Peer {peer_id:?} has been marked as healthy.");
+            self.events
+                .push_back(ToSwarm::GenerateEvent(Event::HealthyPeer(peer_id)));
+            self.try_wake();
         }
     }
 
@@ -1017,10 +1015,10 @@ where
         }) = event
         {
             // Try to close the connection if it exists in the old session.
-            if let Some(old_session) = &mut self.old_session {
-                if old_session.handle_closed_connection(&(peer_id, connection_id)) {
-                    return;
-                }
+            if let Some(old_session) = &mut self.old_session
+                && old_session.handle_closed_connection(&(peer_id, connection_id))
+            {
+                return;
             }
 
             // We notify the swarm of any outbound connection that failed to be upgraded.
@@ -1114,10 +1112,10 @@ where
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        if let Some(old_session) = &mut self.old_session {
-            if let Poll::Ready(event) = old_session.poll(cx) {
-                return Poll::Ready(event);
-            }
+        if let Some(old_session) = &mut self.old_session
+            && let Poll::Ready(event) = old_session.poll(cx)
+        {
+            return Poll::Ready(event);
         }
 
         if let Some(event) = self.events.pop_front() {

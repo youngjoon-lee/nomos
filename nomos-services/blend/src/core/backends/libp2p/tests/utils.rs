@@ -2,24 +2,24 @@ use core::{ops::RangeInclusive, time::Duration};
 
 use async_trait::async_trait;
 use futures::{
-    stream::{pending, Pending},
     StreamExt as _,
+    stream::{Pending, pending},
 };
 use libp2p::{
-    allow_block_list, connection_limits, core::transport::ListenerId, identity::Keypair, Multiaddr,
-    PeerId, Swarm,
+    Multiaddr, PeerId, Swarm, allow_block_list, connection_limits, core::transport::ListenerId,
+    identity::Keypair,
 };
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
     crypto::keys::Ed25519PrivateKey,
     encap::{
-        encapsulated::PoQVerificationInputMinusSigningKey, ProofsVerifier as ProofsVerifierTrait,
+        ProofsVerifier as ProofsVerifierTrait, encapsulated::PoQVerificationInputMinusSigningKey,
     },
 };
 use nomos_blend_network::core::{
+    Config, NetworkBehaviour,
     with_core::behaviour::{Config as CoreToCoreConfig, IntervalStreamProvider},
     with_edge::behaviour::Config as CoreToEdgeConfig,
-    Config, NetworkBehaviour,
 };
 use nomos_blend_scheduling::{
     membership::{Membership, Node},
@@ -38,12 +38,12 @@ use tokio_stream::wrappers::IntervalStream;
 use crate::{
     core::{
         backends::{
-            libp2p::{behaviour::BlendBehaviour, swarm::BlendSwarmMessage, BlendSwarm},
             SessionInfo,
+            libp2p::{BlendSwarm, behaviour::BlendBehaviour, swarm::BlendSwarmMessage},
         },
         settings::BlendConfig,
     },
-    test_utils::{crypto::MockProofsVerifier, PROTOCOL_NAME},
+    test_utils::{PROTOCOL_NAME, crypto::MockProofsVerifier},
 };
 
 pub type InnerSwarm<ProofsVerifier> = BlendSwarm<
@@ -214,7 +214,9 @@ pub struct TestObservationWindowProvider {
 )]
 impl<Settings> From<&BlendConfig<Settings>> for TestObservationWindowProvider {
     fn from(_: &BlendConfig<Settings>) -> Self {
-        panic!("This function should never be called in tests since we are hard-coding expected values for the test observation window provider.");
+        panic!(
+            "This function should never be called in tests since we are hard-coding expected values for the test observation window provider."
+        );
     }
 }
 

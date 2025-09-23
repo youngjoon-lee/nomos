@@ -2,14 +2,14 @@ use std::pin::Pin;
 
 use async_trait::async_trait;
 use futures::{
-    future::{AbortHandle, Abortable},
     Stream, StreamExt as _,
+    future::{AbortHandle, Abortable},
 };
 use libp2p::PeerId;
 use nomos_blend_message::encap::ProofsVerifier as ProofsVerifierTrait;
 use nomos_blend_scheduling::{
-    message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
     EncapsulatedMessage,
+    message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
 };
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
@@ -18,11 +18,11 @@ use tokio_stream::wrappers::BroadcastStream;
 
 use crate::core::{
     backends::{
+        BlendBackend, SessionInfo, SessionStream,
         libp2p::{
             swarm::{BlendSwarm, BlendSwarmMessage, SwarmParams},
             tokio_provider::ObservationWindowTokioIntervalProvider,
         },
-        BlendBackend, SessionInfo, SessionStream,
     },
     settings::BlendConfig,
 };

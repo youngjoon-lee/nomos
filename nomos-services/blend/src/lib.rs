@@ -15,11 +15,11 @@ use nomos_blend_scheduling::{
 };
 use nomos_network::NetworkService;
 use overwatch::{
-    services::{
-        state::{NoOperator, NoState},
-        AsServiceId, ServiceCore, ServiceData,
-    },
     DynError, OpaqueServiceResourcesHandle,
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
+    },
 };
 use services_utils::wait_until_services_are_ready;
 use tracing::{debug, error, info};
@@ -33,7 +33,7 @@ use crate::{
     },
     instance::{Instance, Mode},
     membership::Adapter as _,
-    settings::{Settings, FIRST_SESSION_READY_TIMEOUT},
+    settings::{FIRST_SESSION_READY_TIMEOUT, Settings},
 };
 
 pub mod core;

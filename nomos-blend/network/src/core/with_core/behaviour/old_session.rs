@@ -1,17 +1,17 @@
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
     convert::Infallible,
     task::{Context, Poll, Waker},
 };
 
 use either::Either;
 use libp2p::{
-    swarm::{ConnectionId, NotifyHandler, ToSwarm},
     PeerId,
+    swarm::{ConnectionId, NotifyHandler, ToSwarm},
 };
 use nomos_blend_message::{
-    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey},
     MessageIdentifier,
+    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey},
 };
 use nomos_blend_scheduling::{
     deserialize_encapsulated_message,
@@ -20,7 +20,7 @@ use nomos_blend_scheduling::{
 };
 
 use crate::core::with_core::{
-    behaviour::{handler::FromBehaviour, Event},
+    behaviour::{Event, handler::FromBehaviour},
     error::Error,
 };
 
@@ -101,7 +101,7 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
         let mut at_least_one_receiver = false;
         self.negotiated_peers
             .iter()
-            .filter(|(&peer_id, _)| peer_id != except.0)
+            .filter(|(peer_id, _)| **peer_id != except.0)
             .for_each(|(&peer_id, &connection_id)| {
                 if check_and_update_message_cache(
                     &mut self.exchanged_message_identifiers,
@@ -135,12 +135,12 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
         &mut self,
         (peer_id, connection_id): &(PeerId, ConnectionId),
     ) -> bool {
-        if let Entry::Occupied(entry) = self.negotiated_peers.entry(*peer_id) {
-            if entry.get() == connection_id {
-                entry.remove();
-                self.exchanged_message_identifiers.remove(peer_id);
-                return true;
-            }
+        if let Entry::Occupied(entry) = self.negotiated_peers.entry(*peer_id)
+            && entry.get() == connection_id
+        {
+            entry.remove();
+            self.exchanged_message_identifiers.remove(peer_id);
+            return true;
         }
         false
     }

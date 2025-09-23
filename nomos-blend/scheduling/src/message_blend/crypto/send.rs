@@ -1,16 +1,17 @@
 use core::hash::Hash;
 
 use nomos_blend_message::{
-    crypto::keys::X25519PrivateKey, input::EncapsulationInput, Error, PayloadType,
+    Error, PayloadType, crypto::keys::X25519PrivateKey, input::EncapsulationInput,
 };
 
 use crate::{
+    EncapsulatedMessage,
     membership::Membership,
     message_blend::{
-        crypto::EncapsulationInputs, ProofsGenerator as ProofsGeneratorTrait,
-        SessionCryptographicProcessorSettings, SessionInfo,
+        ProofsGenerator as ProofsGeneratorTrait, SessionCryptographicProcessorSettings,
+        SessionInfo, crypto::EncapsulationInputs,
     },
-    serialize_encapsulated_message, EncapsulatedMessage,
+    serialize_encapsulated_message,
 };
 
 /// [`SessionCryptographicProcessor`] is responsible for only wrapping
@@ -59,7 +60,7 @@ where
 
 impl<NodeId, ProofsGenerator> SessionCryptographicProcessor<NodeId, ProofsGenerator>
 where
-    NodeId: Eq + Hash,
+    NodeId: Eq + Hash + 'static,
     ProofsGenerator: ProofsGeneratorTrait,
 {
     pub async fn encapsulate_cover_payload(

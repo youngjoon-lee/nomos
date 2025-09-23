@@ -5,7 +5,7 @@ use std::{
 
 use multiaddr::Multiaddr;
 use nomos_blend_message::crypto::keys::Ed25519PublicKey;
-use rand::{seq::IteratorRandom as _, Rng};
+use rand::{Rng, seq::IteratorRandom as _};
 use serde::{Deserialize, Serialize};
 
 use crate::serde::ed25519_pubkey_hex;
@@ -79,7 +79,7 @@ where
         &self,
         rng: &mut R,
         amount: usize,
-    ) -> impl Iterator<Item = &Node<NodeId>> {
+    ) -> impl Iterator<Item = &Node<NodeId>> + use<'_, R, NodeId> {
         self.filter_and_choose_remote_nodes(rng, amount, &HashSet::new())
     }
 
@@ -89,7 +89,7 @@ where
         rng: &mut R,
         amount: usize,
         exclude_peers: &HashSet<NodeId>,
-    ) -> impl Iterator<Item = &Node<NodeId>> {
+    ) -> impl Iterator<Item = &Node<NodeId>> + use<'_, R, NodeId> {
         self.node_indices
             .iter()
             .enumerate()
@@ -230,7 +230,8 @@ mod tests {
         let local_key = key(99);
         let membership = Membership::new(&nodes, &local_key);
 
-        let mut chosen = membership.choose_remote_nodes(&mut OsRng, 0);
+        let mut rng = OsRng;
+        let mut chosen = membership.choose_remote_nodes(&mut rng, 0);
         assert!(chosen.next().is_none());
     }
 
