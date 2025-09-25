@@ -160,19 +160,19 @@ impl TryFrom<PoQVerifierInputJson> for PoQVerifierInput {
 
 impl PoQVerifierInput {
     #[must_use]
-    pub const fn to_inputs(&self) -> [Fr; 11] {
+    pub const fn to_inputs(self) -> [Fr; 11] {
         [
             self.key_nullifier.into_inner(),
             self.session.into_inner(),
             self.core_quota.into_inner(),
             self.leader_quota.into_inner(),
             self.core_root.into_inner(),
+            self.pol_ledger_aged.into_inner(),
             self.k_part_one.into_inner(),
             self.k_part_two.into_inner(),
             self.pol_epoch_nonce.into_inner(),
             self.pol_t0.into_inner(),
             self.pol_t1.into_inner(),
-            self.pol_ledger_aged.into_inner(),
         ]
     }
 }
