@@ -146,10 +146,17 @@ where
     pub const fn targets(&self) -> &HashSet<HeaderId> {
         &self.targets
     }
+}
+
+impl<NodeId, Block> Downloads<'_, NodeId, Block> {
+    /// Returns true if there is no download and no delay in progress.
+    pub fn is_empty(&self) -> bool {
+        self.num_peers() == 0
+    }
 
     /// Returns the number of peers currently registered
     /// (either for download or for delay).
-    pub fn num_peers(&self) -> usize {
+    fn num_peers(&self) -> usize {
         self.downloads.len() + self.delays.len()
     }
 }

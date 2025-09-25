@@ -7,7 +7,7 @@ use overwatch::DynError;
 use tracing::{debug, error};
 
 use crate::{
-    Cryptarchia, IbdConfig,
+    Cryptarchia, Error as ChainError, IbdConfig,
     bootstrap::download::{Delay, Download, Downloads, DownloadsOutput},
     network::NetworkAdapter,
 };
@@ -20,9 +20,11 @@ where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::PeerId: Clone + Eq + Hash,
     ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut,
-    ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)>,
+    ProcessBlockFut: Future<Output = Result<(Cryptarchia, HashSet<HeaderId>), Error>>,
 {
     config: IbdConfig<NetAdapter::PeerId>,
+    cryptarchia: Cryptarchia,
+    storage_blocks_to_remove: HashSet<HeaderId>,
     network: NetAdapter,
     process_block: ProcessBlockFn,
     _phantom: PhantomData<RuntimeServiceId>,
@@ -34,15 +36,19 @@ where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::PeerId: Clone + Eq + Hash,
     ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut,
-    ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)>,
+    ProcessBlockFut: Future<Output = Result<(Cryptarchia, HashSet<HeaderId>), Error>>,
 {
     pub const fn new(
         config: IbdConfig<NetAdapter::PeerId>,
+        cryptarchia: Cryptarchia,
+        storage_blocks_to_remove: HashSet<HeaderId>,
         network: NetAdapter,
         process_block: ProcessBlockFn,
     ) -> Self {
         Self {
             config,
+            cryptarchia,
+            storage_blocks_to_remove,
             network,
             process_block,
             _phantom: PhantomData,
@@ -58,7 +64,7 @@ where
     NetAdapter::Block: Debug + Unpin,
     ProcessBlockFn:
         Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut + Send + Sync,
-    ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)> + Send,
+    ProcessBlockFut: Future<Output = Result<(Cryptarchia, HashSet<HeaderId>), Error>> + Send,
     RuntimeServiceId: Sync,
 {
     /// Runs IBD with the configured peers.
@@ -71,24 +77,18 @@ where
     ///
     /// An error is returned if there is no peer available for IBD,
     /// or if all peers return an error.
-    pub async fn run(
-        &self,
-        cryptarchia: Cryptarchia,
-        storage_blocks_to_remove: HashSet<HeaderId>,
-    ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
+    pub async fn run(self) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
         if self.config.peers.is_empty() {
-            return Ok((cryptarchia, storage_blocks_to_remove));
+            return Ok((self.cryptarchia, self.storage_blocks_to_remove));
         }
 
-        let downloads = self.initiate_downloads(&cryptarchia).await?;
-        self.proceed_downloads(downloads, cryptarchia, storage_blocks_to_remove)
-            .await
+        let downloads = self.initiate_downloads().await?;
+        self.proceed_downloads(downloads).await
     }
 
     /// Initiates [`Downloads`] from the configured peers.
     async fn initiate_downloads<'a>(
         &self,
-        cryptarchia: &Cryptarchia,
     ) -> Result<Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>, Error>
     where
         NetAdapter::PeerId: 'a,
@@ -97,7 +97,7 @@ where
         let mut downloads = Downloads::new(self.config.delay_before_new_download);
         for peer in &self.config.peers {
             match self
-                .initiate_download(*peer, None, cryptarchia, downloads.targets())
+                .initiate_download(*peer, None, downloads.targets())
                 .await
             {
                 Ok(Some(download)) => {
@@ -113,7 +113,7 @@ where
             }
         }
 
-        if downloads.num_peers() == 0 {
+        if downloads.is_empty() {
             Err(Error::AllPeersFailed)
         } else {
             Ok(downloads)
@@ -132,7 +132,6 @@ where
         &self,
         peer: NetAdapter::PeerId,
         latest_downloaded_block: Option<HeaderId>,
-        cryptarchia: &Cryptarchia,
         targets_in_progress: &HashSet<HeaderId>,
     ) -> Result<Option<Download<NetAdapter::PeerId, NetAdapter::Block>>, Error> {
         // Get the most recent peer's tip.
@@ -150,7 +149,7 @@ where
             }
         };
 
-        if !Self::should_download(&target, cryptarchia, targets_in_progress) {
+        if !self.should_download(&target, targets_in_progress) {
             return Ok(None);
         }
 
@@ -160,8 +159,8 @@ where
             .request_blocks_from_peer(
                 peer,
                 target,
-                cryptarchia.tip(),
-                cryptarchia.lib(),
+                self.cryptarchia.tip(),
+                self.cryptarchia.lib(),
                 latest_downloaded_block.map_or_else(HashSet::new, |id| HashSet::from([id])),
             )
             .await
@@ -170,12 +169,8 @@ where
         Ok(Some(Download::new(peer, target, stream)))
     }
 
-    fn should_download(
-        target: &HeaderId,
-        cryptarchia: &Cryptarchia,
-        targets_in_progress: &HashSet<HeaderId>,
-    ) -> bool {
-        cryptarchia.consensus.branches().get(target).is_none()
+    fn should_download(&self, target: &HeaderId, targets_in_progress: &HashSet<HeaderId>) -> bool {
+        self.cryptarchia.consensus.branches().get(target).is_none()
             && !targets_in_progress.contains(target)
     }
 
@@ -190,105 +185,157 @@ where
     ///
     /// An error is return if all peers fail.
     async fn proceed_downloads<'a>(
-        &self,
+        mut self,
         mut downloads: Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
-        mut cryptarchia: Cryptarchia,
-        mut storage_blocks_to_remove: HashSet<HeaderId>,
     ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error>
     where
         NetAdapter::PeerId: 'a,
         NetAdapter::Block: 'a,
     {
-        // Track failed peers, so that we can return an error if all peers fail.
-        let num_peers = downloads.num_peers();
-        let mut failed_peers = HashSet::new();
-
         // Repeat until there is no download remaining.
         while let Some(output) = downloads.next().await {
-            match output {
-                DownloadsOutput::DelayCompleted(delay) => {
-                    downloads = self
-                        .try_initiate_download(
-                            *delay.peer(),
-                            delay.latest_downloaded_block(),
-                            &cryptarchia,
-                            downloads,
-                        )
-                        .await;
-                }
-                DownloadsOutput::BlockReceived { block, download } => {
-                    (cryptarchia, storage_blocks_to_remove) =
-                        (self.process_block)(cryptarchia, storage_blocks_to_remove, block).await;
-                    // TODO: Stop download if process_block fails.
-                    //       (Requires refactoring the chain service)
-                    // TODO: Close the download (the underlying stream) when we need to stop it.
-                    //       https://github.com/logos-co/nomos/issues/1517
-                    downloads.add_download(download);
-                }
-                DownloadsOutput::DownloadCompleted(download) => {
-                    debug!(
-                        "A download completed for {:?}. Try a new download",
-                        download.peer()
-                    );
-                    downloads = self
-                        .try_initiate_download(
-                            *download.peer(),
-                            download.last(),
-                            &cryptarchia,
-                            downloads,
-                        )
-                        .await;
-                }
-                DownloadsOutput::Error { error, download } => {
-                    error!("Download failed from {:?}: {}", download.peer(), error);
-                    failed_peers.insert(*download.peer());
-                    if failed_peers.len() == num_peers {
-                        return Err(Error::AllPeersFailed);
-                    }
+            if let Err(e) = self.handle_downloads_output(output, &mut downloads).await {
+                error!("A peer was dropped from IBD due to error: {e:?}");
+                if downloads.is_empty() {
+                    return Err(Error::AllPeersFailed);
                 }
             }
         }
 
-        Ok((cryptarchia, storage_blocks_to_remove))
+        Ok((self.cryptarchia, self.storage_blocks_to_remove))
+    }
+
+    /// Handles a [`DownloadsOutput`].
+    ///
+    /// In case of failure, the [`Download`] for the failed peer is dropped
+    /// from the [`Downloads`] and the error is returned.
+    async fn handle_downloads_output<'a>(
+        &mut self,
+        output: DownloadsOutput<NetAdapter::PeerId, NetAdapter::Block>,
+        downloads: &mut Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
+    ) -> Result<(), Error>
+    where
+        NetAdapter::PeerId: 'a,
+        NetAdapter::Block: 'a,
+    {
+        match output {
+            DownloadsOutput::DelayCompleted(delay) => {
+                self.handle_delay_completed(delay, downloads).await
+            }
+            DownloadsOutput::BlockReceived { block, download } => {
+                self.handle_block_received(block, download, downloads).await
+            }
+            DownloadsOutput::DownloadCompleted(download) => {
+                self.handle_download_completed(download, downloads).await
+            }
+            DownloadsOutput::Error { error, download } => {
+                error!("Download failed from {:?}: {}", download.peer(), error);
+                Err(Error::BlockProvider(error))
+            }
+        }
+    }
+
+    /// Handles a [`DownloadsOutput::BlockReceived`] by processing the block.
+    async fn handle_block_received<'a>(
+        &mut self,
+        block: NetAdapter::Block,
+        download: Download<NetAdapter::PeerId, NetAdapter::Block>,
+        downloads: &mut Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
+    ) -> Result<(), Error>
+    where
+        NetAdapter::PeerId: 'a,
+        NetAdapter::Block: 'a,
+    {
+        debug!(
+            "Handling a block received from {:?}: {:?}",
+            download.peer(),
+            block
+        );
+
+        let (cryptarchia, storage_blocks_to_remove) = (self.process_block)(
+            self.cryptarchia.clone(),
+            self.storage_blocks_to_remove.clone(),
+            block,
+        )
+        .await
+        .inspect_err(|e| {
+            error!(
+                "Failed to process block from peer {:?}: {e:?}",
+                download.peer()
+            );
+        })?;
+        downloads.add_download(download);
+        self.cryptarchia = cryptarchia;
+        self.storage_blocks_to_remove = storage_blocks_to_remove;
+        Ok(())
+    }
+
+    /// Handles a [`DownloadsOutput::DownloadCompleted`] by trying to
+    /// initiate a new download for the same peer.
+    async fn handle_download_completed<'a>(
+        &self,
+        download: Download<NetAdapter::PeerId, NetAdapter::Block>,
+        downloads: &mut Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
+    ) -> Result<(), Error>
+    where
+        NetAdapter::PeerId: 'a,
+        NetAdapter::Block: 'a,
+    {
+        debug!(
+            "A download completed for {:?}. Try a new download",
+            download.peer()
+        );
+        self.try_initiate_download(*download.peer(), download.last(), downloads)
+            .await
+    }
+
+    /// Handles a [`DownloadsOutput::DelayCompleted`] by trying to
+    /// initiate a new download for the same peer.
+    async fn handle_delay_completed<'a>(
+        &self,
+        delay: Delay<NetAdapter::PeerId>,
+        downloads: &mut Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
+    ) -> Result<(), Error>
+    where
+        NetAdapter::PeerId: 'a,
+        NetAdapter::Block: 'a,
+    {
+        debug!(
+            "A delay completed for {:?}. Try a new download",
+            delay.peer()
+        );
+        self.try_initiate_download(*delay.peer(), delay.latest_downloaded_block(), downloads)
+            .await
     }
 
     /// Tries to initiate a download for a peer.
     ///
     /// If there is no download needed at the moment, a delay is scheduled,
     /// so that a new download can be attempted later.
-    ///
-    /// The peer is ignored if the communication fails.
     async fn try_initiate_download<'a>(
         &self,
         peer: NetAdapter::PeerId,
         latest_downloaded_block: Option<HeaderId>,
-        cryptarchia: &Cryptarchia,
-        mut downloads: Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
-    ) -> Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>
+        downloads: &mut Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
+    ) -> Result<(), Error>
     where
         NetAdapter::PeerId: 'a,
         NetAdapter::Block: 'a,
     {
         match self
-            .initiate_download(
-                peer,
-                latest_downloaded_block,
-                cryptarchia,
-                downloads.targets(),
-            )
+            .initiate_download(peer, latest_downloaded_block, downloads.targets())
             .await
-        {
-            Ok(Some(download)) => {
+            .inspect_err(|e| {
+                error!("Failed to initiate next download for {peer:?}: {e}");
+            })? {
+            Some(download) => {
                 downloads.add_download(download);
             }
-            Ok(None) => {
+            None => {
                 downloads.add_delay(Delay::new(peer, latest_downloaded_block));
             }
-            Err(e) => {
-                error!("Failed to initiate next download for {peer:?}: {e}");
-            }
         }
-        downloads
+        Ok(())
     }
 }
 
@@ -298,6 +345,8 @@ pub enum Error {
     BlockProvider(DynError),
     #[error("All peers failed")]
     AllPeersFailed,
+    #[error("Block processing failed: {0}")]
+    BlockProcessing(#[from] ChainError),
 }
 
 #[cfg(test)]
@@ -321,10 +370,12 @@ mod tests {
     async fn no_peers_configured() {
         let (cryptarchia, _) = InitialBlockDownload::new(
             config(HashSet::new()),
+            new_cryptarchia(),
+            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::new()),
             process_block,
         )
-        .run(new_cryptarchia(), HashSet::new())
+        .run()
         .await
         .unwrap();
 
@@ -347,10 +398,12 @@ mod tests {
         );
         let (cryptarchia, _) = InitialBlockDownload::new(
             config([NodeId(0)].into()),
+            new_cryptarchia(),
+            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([(NodeId(0), peer.clone())])),
             process_block,
         )
-        .run(new_cryptarchia(), HashSet::new())
+        .run()
         .await
         .unwrap();
 
@@ -373,10 +426,12 @@ mod tests {
         );
         let (cryptarchia, _) = InitialBlockDownload::new(
             config([NodeId(0)].into()),
+            new_cryptarchia(),
+            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([(NodeId(0), peer.clone())])),
             process_block,
         )
-        .run(new_cryptarchia(), HashSet::new())
+        .run()
         .await
         .unwrap();
 
@@ -409,13 +464,15 @@ mod tests {
         );
         let (cryptarchia, _) = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
+            new_cryptarchia(),
+            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
             process_block,
         )
-        .run(new_cryptarchia(), HashSet::new())
+        .run()
         .await
         .unwrap();
 
@@ -428,7 +485,7 @@ mod tests {
     /// the peer should be ignored, and IBD should continue
     /// with the remaining peers.
     #[tokio::test]
-    async fn err_from_one_peer_while_downloading() {
+    async fn stream_err_from_one_peer_while_downloading() {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
@@ -452,13 +509,15 @@ mod tests {
         );
         let (cryptarchia, _) = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
+            new_cryptarchia(),
+            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
             process_block,
         )
-        .run(new_cryptarchia(), HashSet::new())
+        .run()
         .await
         .unwrap();
 
@@ -470,7 +529,7 @@ mod tests {
     /// If all peers return an error while streaming blocks,
     /// [`Error::AllPeersFailed`] should be returned.
     #[tokio::test]
-    async fn err_from_all_peers_while_downloading() {
+    async fn stream_err_from_all_peers_while_downloading() {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
@@ -494,13 +553,15 @@ mod tests {
         );
         let result = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
+            new_cryptarchia(),
+            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
             process_block,
         )
-        .run(new_cryptarchia(), HashSet::new())
+        .run()
         .await;
 
         assert!(matches!(result, Err(Error::AllPeersFailed)));
@@ -510,7 +571,7 @@ mod tests {
     /// the peer should be ignored, and IBD should continue
     /// with the remaining peers.
     #[tokio::test]
-    async fn err_from_one_peer_while_initiating() {
+    async fn stream_err_from_one_peer_while_initiating() {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
@@ -534,13 +595,15 @@ mod tests {
         );
         let (cryptarchia, _) = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
+            new_cryptarchia(),
+            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
             process_block,
         )
-        .run(new_cryptarchia(), HashSet::new())
+        .run()
         .await
         .unwrap();
 
@@ -552,7 +615,7 @@ mod tests {
     /// If all peers return an error while initiating download,
     /// [`Error::AllPeersFailed`] should be returned.
     #[tokio::test]
-    async fn err_from_all_peers_while_initiating() {
+    async fn stream_err_from_all_peers_while_initiating() {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
@@ -576,15 +639,116 @@ mod tests {
         );
         let result = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
+            new_cryptarchia(),
+            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
             process_block,
         )
-        .run(new_cryptarchia(), HashSet::new())
+        .run()
         .await;
 
+        assert!(matches!(result, Err(Error::AllPeersFailed)));
+    }
+
+    /// If a block received from a peer cannot be processed,
+    /// the peer should be ignored, and IBD should continue
+    /// with the remaining peers.
+    #[tokio::test]
+    async fn block_err_from_one_peer() {
+        let peer0 = BlockProvider::new(
+            vec![
+                Block::genesis(),
+                Block::new(1, GENESIS_ID, 1, 1),
+                // Invalid block (parent doesn't exist)
+                Block::new(2, 100, 2, 2),
+                Block::new(3, 2, 3, 3),
+            ],
+            Ok(Block::new(3, 2, 3, 3)),
+            2,
+            false,
+        );
+        let peer1 = BlockProvider::new(
+            vec![
+                Block::genesis(),
+                Block::new(4, GENESIS_ID, 1, 1),
+                Block::new(5, 4, 2, 2),
+                Block::new(6, 5, 3, 3),
+            ],
+            Ok(Block::new(6, 5, 3, 3)),
+            2,
+            false,
+        );
+        let (cryptarchia, _) = InitialBlockDownload::new(
+            config([NodeId(0), NodeId(1)].into()),
+            new_cryptarchia(),
+            HashSet::new(),
+            MockNetworkAdapter::<()>::new(HashMap::from([
+                (NodeId(0), peer0.clone()),
+                (NodeId(1), peer1.clone()),
+            ])),
+            process_block,
+        )
+        .run()
+        .await
+        .unwrap();
+
+        // All blocks from peer1 that provided valid blocks
+        // should be added to the local chain.
+        assert!(peer1.chain.iter().all(|b| contain(b, &cryptarchia)));
+        // The local tip should be the same as peer1's tip.
+        assert_eq!(cryptarchia.tip(), peer1.tip.unwrap().id);
+
+        // Blocks from peer0 remain in the local chain only until
+        // right before the failure.
+        assert!(peer0.chain[..2].iter().all(|b| contain(b, &cryptarchia)));
+        assert!(peer0.chain[2..].iter().all(|b| !contain(b, &cryptarchia)));
+    }
+
+    /// If all peers provided invalid blocks,
+    /// [`Error::AllPeersFailed`] should be returned.
+    #[tokio::test]
+    async fn block_err_from_all_peers() {
+        let peer0 = BlockProvider::new(
+            vec![
+                Block::genesis(),
+                Block::new(1, GENESIS_ID, 1, 1),
+                // Invalid block (parent doesn't exist)
+                Block::new(2, 100, 2, 2),
+                Block::new(3, 2, 3, 3),
+            ],
+            Ok(Block::new(3, 2, 3, 3)),
+            2,
+            false,
+        );
+        let peer1 = BlockProvider::new(
+            vec![
+                Block::genesis(),
+                Block::new(4, GENESIS_ID, 1, 1),
+                // Invalid block (parent doesn't exist)
+                Block::new(5, 100, 2, 2),
+                Block::new(6, 5, 3, 3),
+            ],
+            Ok(Block::new(6, 5, 3, 3)),
+            2,
+            false,
+        );
+        let result = InitialBlockDownload::new(
+            config([NodeId(0), NodeId(1)].into()),
+            new_cryptarchia(),
+            HashSet::new(),
+            MockNetworkAdapter::<()>::new(HashMap::from([
+                (NodeId(0), peer0.clone()),
+                (NodeId(1), peer1.clone()),
+            ])),
+            process_block,
+        )
+        .run()
+        .await;
+
+        // Expect an error
         assert!(matches!(result, Err(Error::AllPeersFailed)));
     }
 
@@ -592,16 +756,16 @@ mod tests {
         mut cryptarchia: Cryptarchia,
         storage_blocks_to_remove: HashSet<HeaderId>,
         block: Block,
-    ) -> (Cryptarchia, HashSet<HeaderId>) {
+    ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
         // Add the block only to the consensus, not to the ledger state
         // because the mocked block doesn't have a proof.
         // It's enough because the tests doesn't check the ledger state.
         let (consensus, _) = cryptarchia
             .consensus
             .receive_block(block.id, block.parent, block.slot)
-            .expect("Block must be valid");
+            .map_err(ChainError::from)?;
         cryptarchia.consensus = consensus;
-        (cryptarchia, storage_blocks_to_remove)
+        Ok((cryptarchia, storage_blocks_to_remove))
     }
 
     fn contain(block: &Block, cryptarchia: &Cryptarchia) -> bool {

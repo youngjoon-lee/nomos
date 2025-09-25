@@ -70,7 +70,10 @@ use tracing_futures::Instrument as _;
 use crate::{
     blend::BlendAdapter,
     blob::{BlobValidation, RecentBlobValidation, SkipBlobValidation, get_sampled_blobs},
-    bootstrap::{ibd::InitialBlockDownload, state::choose_engine_state},
+    bootstrap::{
+        ibd::{self, InitialBlockDownload},
+        state::choose_engine_state,
+    },
     leadership::Leader,
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
@@ -636,13 +639,13 @@ where
         // refactoring.       https://github.com/logos-co/nomos/issues/1505
         let initial_block_download = InitialBlockDownload::new(
             bootstrap_config.ibd,
+            cryptarchia,
+            storage_blocks_to_remove,
             network_adapter,
             |cryptarchia, storage_blocks_to_remove, block| {
                 let leader = &leader;
                 let relays = &relays;
                 let state_updater = &self.service_resources_handle.state_updater;
-                let cryptarchia_clone = cryptarchia.clone();
-                let storage_blocks_to_remove_clone = storage_blocks_to_remove.clone();
                 let new_block_subscription_sender = &self.new_block_subscription_sender;
                 let lib_subscription_sender = &self.lib_subscription_sender;
                 async move {
@@ -659,16 +662,16 @@ where
                         state_updater,
                     )
                     .await
-                    .unwrap_or_else(|e| {
+                    .map_err(|e| {
                         error!("Error processing block during IBD: {:?}", e);
-                        (cryptarchia_clone, storage_blocks_to_remove_clone)
+                        ibd::Error::from(e)
                     })
                 }
             },
         );
 
         let (mut cryptarchia, mut storage_blocks_to_remove) = match initial_block_download
-            .run(cryptarchia, storage_blocks_to_remove)
+            .run()
             .await
         {
             Ok((cryptarchia, storage_blocks_to_remove)) => {
