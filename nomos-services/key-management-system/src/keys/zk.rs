@@ -1,4 +1,4 @@
-use nomos_core::mantle::keys::{PublicKey, SecretKey};
+use nomos_core::mantle::keys::{PublicKey, SecretKey, Signature};
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
 
@@ -9,7 +9,7 @@ pub struct ZkKey(pub(crate) SecretKey);
 
 impl SecuredKey for ZkKey {
     type Payload = groth16::Fr;
-    type Signature = groth16::Fr;
+    type Signature = Signature;
     type PublicKey = PublicKey;
     type Error = KeyError;
 
@@ -18,10 +18,19 @@ impl SecuredKey for ZkKey {
     }
 
     fn sign_multiple(
-        _keys: &[&Self],
-        _payload: &Self::Payload,
+        keys: &[&Self],
+        payload: &Self::Payload,
     ) -> Result<Self::Signature, Self::Error> {
-        unimplemented!("Multi-key signature is not implemented for Zk keys.")
+        if keys.len() != 32 {
+            return Err(KeyError::UnsupportedMultisignatureSize(32, keys.len()));
+        }
+        let keys: [_; 32] = keys
+            .iter()
+            .map(|k| k.0.clone())
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("Error is checked first thing in the method");
+        Ok(SecretKey::multi_sign(&keys, payload))
     }
 
     fn as_public_key(&self) -> Self::PublicKey {
