@@ -2,7 +2,7 @@ use core::{cmp::Ordering, fmt::Debug, marker::PhantomData};
 
 use async_trait::async_trait;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
-use cryptarchia_engine::Slot;
+use cryptarchia_engine::{Epoch, Slot};
 use futures::Stream;
 use nomos_blend_message::crypto::proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs;
 use nomos_core::crypto::ZkHash;
@@ -10,9 +10,9 @@ use nomos_ledger::EpochState;
 use nomos_time::SlotTick;
 use overwatch::overwatch::OverwatchHandle;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PolEpochInfo {
-    pub epoch_nonce: ZkHash,
+    pub epoch: Epoch,
     pub poq_private_inputs: ProofOfLeadershipQuotaInputs,
 }
 

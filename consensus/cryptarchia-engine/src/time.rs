@@ -154,6 +154,11 @@ impl EpochConfig {
             .try_into()
             .expect("Epoch should build from a correct configuration")
     }
+
+    #[must_use]
+    pub fn starting_slot(&self, epoch: &Epoch, base_period_length: NonZero<u64>) -> Slot {
+        Slot::from(u64::from(u32::from(*epoch)) * self.epoch_length(base_period_length))
+    }
 }
 
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]

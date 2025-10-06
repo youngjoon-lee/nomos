@@ -6,14 +6,14 @@ use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, time::Duration};
 
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
-use cryptarchia_engine::Slot;
+use cryptarchia_engine::{Epoch, Slot};
 use futures::{StreamExt as _, TryFutureExt as _};
 pub use leadership::LeaderConfig;
 use nomos_core::{
     block::Block,
     da,
     header::{Header, HeaderId},
-    mantle::{AuthenticatedMantleTx, Op, Transaction, TxHash, TxSelect},
+    mantle::{AuthenticatedMantleTx, Op, Transaction, TxHash, TxSelect, keys::SecretKey},
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate},
 };
 use nomos_da_sampling::{
@@ -35,7 +35,11 @@ use tx_service::{
     network::NetworkAdapter as MempoolAdapter,
 };
 
-use crate::{blend::BlendAdapter, leadership::Leader, relays::CryptarchiaConsensusRelays};
+use crate::{
+    blend::BlendAdapter,
+    leadership::{Leader, WinningPoLSlotNotifier},
+    relays::CryptarchiaConsensusRelays,
+};
 
 type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
 
@@ -63,7 +67,7 @@ pub enum LeaderMsg {
     /// * this service has just started mid-epoch -> winning slots for the
     ///   current epoch
     WinningPolEpochSlotStreamSubscribe {
-        sender: oneshot::Sender<broadcast::Receiver<LeaderPrivate>>,
+        sender: oneshot::Sender<broadcast::Receiver<(LeaderPrivate, SecretKey, Epoch)>>,
     },
 }
 
@@ -111,7 +115,7 @@ pub struct CryptarchiaLeader<
     Wallet: nomos_wallet::api::WalletServiceData,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    winning_pol_epoch_slots_sender: broadcast::Sender<LeaderPrivate>,
+    winning_pol_epoch_slots_sender: broadcast::Sender<(LeaderPrivate, SecretKey, Epoch)>,
 }
 
 impl<
@@ -303,6 +307,8 @@ where
         // TODO: check active slot coeff is exactly 1/30
 
         let leader = Leader::new(leader_config.sk, ledger_config);
+        let mut winning_pol_slot_notifier =
+            WinningPoLSlotNotifier::new(&leader, &self.winning_pol_epoch_slots_sender);
 
         let wallet_api = nomos_wallet::api::WalletApi::<Wallet, RuntimeServiceId>::new(
             self.service_resources_handle
@@ -372,7 +378,6 @@ where
                             }
                         };
 
-                        let aged_tree = tip_state.aged_commitments();
                         let latest_tree = tip_state.latest_commitments();
 
                         let epoch_state = match cryptarchia_api.get_epoch_state(slot).await {
@@ -395,7 +400,9 @@ where
                             }
                         };
 
-                        if let Some(proof) = leader.build_proof_for(&eligible_utxos, aged_tree, latest_tree, &epoch_state, slot).await {
+                        winning_pol_slot_notifier.process_epoch(&eligible_utxos, &epoch_state);
+
+                        if let Some(proof) = leader.build_proof_for(&eligible_utxos, latest_tree, &epoch_state, slot).await {
                             // TODO: spawn as a separate task?
                             let block = Self::propose_block(
                                 parent,
@@ -588,7 +595,7 @@ where
 
 fn handle_inbound_message(
     msg: LeaderMsg,
-    winning_pol_epoch_slots_sender: &broadcast::Sender<LeaderPrivate>,
+    winning_pol_epoch_slots_sender: &broadcast::Sender<(LeaderPrivate, SecretKey, Epoch)>,
 ) {
     let LeaderMsg::WinningPolEpochSlotStreamSubscribe { sender } = msg;
 
