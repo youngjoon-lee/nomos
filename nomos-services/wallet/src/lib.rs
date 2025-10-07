@@ -3,6 +3,7 @@ pub mod api;
 use std::{collections::HashSet, time::Duration};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use chain_service::{
     LibUpdate,
     api::{CryptarchiaServiceApi, CryptarchiaServiceData},
@@ -13,7 +14,7 @@ use nomos_core::{
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, Utxo, Value, keys::PublicKey},
 };
-use nomos_storage::backends::StorageBackend;
+use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend};
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
     services::{
@@ -91,8 +92,8 @@ where
     Tx: AuthenticatedMantleTx + Send + Sync + Clone + Eq + Serialize + DeserializeOwned + 'static,
     Cryptarchia: CryptarchiaServiceData<Tx = Tx>,
     Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as nomos_storage::api::chain::StorageChainApi>::Block:
-        TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
+    <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<Cryptarchia>
         + AsServiceId<nomos_storage::StorageService<Storage, RuntimeServiceId>>
@@ -220,8 +221,8 @@ where
     Tx: AuthenticatedMantleTx + Send + Sync + Clone + Eq + Serialize + DeserializeOwned + 'static,
     Cryptarchia: CryptarchiaServiceData<Tx = Tx> + Send + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as nomos_storage::api::chain::StorageChainApi>::Block:
-        TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
+    <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     RuntimeServiceId: AsServiceId<Cryptarchia> + std::fmt::Debug + std::fmt::Display + Sync,
 {
     async fn handle_wallet_message(

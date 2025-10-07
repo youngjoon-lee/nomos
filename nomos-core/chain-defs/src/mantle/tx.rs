@@ -1,12 +1,13 @@
 use std::sync::LazyLock;
 
 use bytes::Bytes;
-use groth16::{Fr, fr_from_bytes, serde::serde_fr};
+use groth16::{Fr, fr_from_bytes, fr_to_bytes, serde::serde_fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest, ZkHash};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    codec::SerdeOp,
     crypto::ZkHasher,
     mantle::{
         AuthenticatedMantleTx, Transaction, TransactionHasher,
@@ -45,6 +46,12 @@ impl From<TxHash> for ZkHash {
 impl AsRef<ZkHash> for TxHash {
     fn as_ref(&self) -> &ZkHash {
         &self.0
+    }
+}
+
+impl From<TxHash> for Bytes {
+    fn from(tx_hash: TxHash) -> Self {
+        Self::copy_from_slice(&fr_to_bytes(&tx_hash.0))
     }
 }
 
@@ -242,7 +249,7 @@ impl SignedMantleTx {
     }
 
     fn serialized_size(&self) -> u64 {
-        <Self as crate::codec::SerdeOp>::serialized_size(self)
+        <Self as SerdeOp>::serialized_size(self)
             .expect("Failed to calculate serialized size for signed mantle tx")
     }
 }
