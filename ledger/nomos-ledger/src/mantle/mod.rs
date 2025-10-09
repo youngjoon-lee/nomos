@@ -12,7 +12,7 @@ use nomos_core::{
         ops::{Op, OpProof, leader_claim::VoucherCm},
     },
     proofs::zksig::{self, ZkSignatureProof as _},
-    sdp::state::DeclarationStateError,
+    sdp::{ServiceType, state::DeclarationStateError},
 };
 use sdp::SdpLedgerError;
 
@@ -34,6 +34,8 @@ pub enum Error {
     LockedNotes(#[from] locked_notes::Error),
     #[error("Note not found: {0:?}")]
     NoteNotFound(NoteId),
+    #[error("Service parameters not found for service {0:?}")]
+    ServiceParamsNotFound(ServiceType),
 }
 
 impl From<DeclarationStateError> for Error {
@@ -88,6 +90,10 @@ impl LedgerState {
         Ok(self)
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "All operations handled in one method"
+    )]
     pub fn try_apply_tx<Constants: GasConstants>(
         mut self,
         current_block_number: BlockNumber,
@@ -148,6 +154,7 @@ impl LedgerState {
                 }
                 (Op::SDPActive(op), Some(OpProof::ZkSig(sig))) => {
                     let declaration = self.sdp.get_declaration(&op.declaration_id)?;
+                    let service_type = declaration.service_type;
                     let Some((utxo, _)) = utxo_tree.utxos().get(&declaration.locked_note_id) else {
                         return Err(Error::NoteNotFound(declaration.locked_note_id));
                     };
@@ -159,12 +166,16 @@ impl LedgerState {
                     }
                     self.sdp = self.sdp.apply_active_msg(
                         current_block_number,
-                        &config.service_params,
+                        config
+                            .service_params
+                            .get(&service_type)
+                            .ok_or(Error::ServiceParamsNotFound(service_type))?,
                         op,
                     )?;
                 }
                 (Op::SDPWithdraw(op), Some(OpProof::ZkSig(sig))) => {
                     let declaration = self.sdp.get_declaration(&op.declaration_id)?;
+                    let service_type = declaration.service_type;
                     let Some((utxo, _)) = utxo_tree.utxos().get(&declaration.locked_note_id) else {
                         return Err(Error::NoteNotFound(declaration.locked_note_id));
                     };
@@ -179,7 +190,10 @@ impl LedgerState {
                         .unlock(declaration.service_type, &declaration.locked_note_id)?;
                     self.sdp = self.sdp.apply_withdrawn_msg(
                         current_block_number,
-                        &config.service_params,
+                        config
+                            .service_params
+                            .get(&service_type)
+                            .ok_or(Error::ServiceParamsNotFound(service_type))?,
                         op,
                     )?;
                 }
@@ -200,6 +214,19 @@ impl LedgerState {
 
         Ok((self, balance))
     }
+
+    // This method should be called once per block to ensure that state of previous
+    // declarations is reevaluated.
+    pub fn try_update_membership(
+        mut self,
+        current_block_number: BlockNumber,
+        config: &Config,
+    ) -> Result<Self, Error> {
+        self.sdp = self
+            .sdp
+            .try_update_session(current_block_number, &config.service_params)?;
+        Ok(self)
+    }
 }
 
 #[cfg(test)]
@@ -218,7 +245,7 @@ mod tests {
             },
         },
         proofs::zksig::DummyZkSignature,
-        sdp::{ProviderId, ServiceType, ZkPublicKey, state::ActiveStateError},
+        sdp::{ProviderId, ZkPublicKey, state::ActiveStateError},
     };
     use num_bigint::BigUint;
 
