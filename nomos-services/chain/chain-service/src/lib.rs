@@ -10,7 +10,7 @@ mod sync;
 
 use core::fmt::Debug;
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::Display,
     hash::Hash,
     path::PathBuf,
@@ -22,7 +22,7 @@ use bytes::Bytes;
 use cryptarchia_engine::PrunedBlocks;
 pub use cryptarchia_engine::{Epoch, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
-use futures::StreamExt as _;
+use futures::{FutureExt as _, StreamExt as _};
 use network::NetworkAdapter;
 use nomos_core::{
     block::Block,
@@ -32,6 +32,7 @@ use nomos_core::{
         AuthenticatedMantleTx, SignedMantleTx, Transaction, TxHash, gas::MainnetGasConstants,
         ops::leader_claim::VoucherCm,
     },
+    sdp::{ProviderId, ProviderInfo, ServiceType, SessionUpdate},
 };
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
@@ -52,12 +53,13 @@ use services_utils::{
     overwatch::{JsonFileBackend, RecoveryOperator, recovery::backends::FileBackendSettings},
     wait_until_services_are_ready,
 };
+use strum::IntoEnumIterator as _;
 use thiserror::Error;
 use tokio::{
     sync::{broadcast, mpsc, oneshot},
     time::Instant,
 };
-use tracing::{Level, debug, error, info, instrument, span};
+use tracing::{Level, debug, error, info, instrument, span, warn};
 use tracing_futures::Instrument as _;
 use tx_service::{
     TxMempoolService, backend::RecoverableMempool,
@@ -101,6 +103,10 @@ pub enum Error {
     Mempool(String),
     #[error("Blob validation failed: {0}")]
     BlobValidationFailed(#[from] blob::Error),
+    #[error("Block header id not found: {0}")]
+    HeaderIdNotFound(HeaderId),
+    #[error("Service session not found: {0:?}")]
+    ServiceSessionNotFound(ServiceType),
 }
 
 #[derive(Debug)]
@@ -279,6 +285,37 @@ impl Cryptarchia {
 
     fn has_block(&self, block_id: &HeaderId) -> bool {
         self.consensus.branches().get(block_id).is_some()
+    }
+
+    fn active_session_providers(
+        &self,
+        block_id: &HeaderId,
+        service_type: ServiceType,
+    ) -> Result<HashMap<ProviderId, ProviderInfo>, Error> {
+        let ledger = self
+            .ledger
+            .state(block_id)
+            .ok_or(Error::HeaderIdNotFound(*block_id))?;
+
+        ledger
+            .active_session_providers(service_type)
+            .ok_or(Error::ServiceSessionNotFound(service_type))
+    }
+
+    fn active_sessions_numbers(
+        &self,
+        block_id: &HeaderId,
+    ) -> Result<HashMap<ServiceType, u64>, Error> {
+        let ledger = self
+            .ledger
+            .state(block_id)
+            .ok_or(Error::HeaderIdNotFound(*block_id))?;
+
+        Ok(ledger
+            .active_sessions()
+            .iter()
+            .map(|(service, session)| (*service, session.session_number))
+            .collect())
     }
 }
 
@@ -1076,6 +1113,14 @@ where
         let id = header.id();
         let prev_lib = cryptarchia.lib();
 
+        let previous_session_numbers = match cryptarchia.active_sessions_numbers(&prev_lib) {
+            Ok(session_numbers) => session_numbers,
+            Err(e) => {
+                warn!("Error getting previous session numbers: {e}");
+                ServiceType::iter().map(|s| (s, 0)).collect()
+            }
+        };
+
         let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_header(header)?;
         let new_lib = cryptarchia.lib();
 
@@ -1140,6 +1185,36 @@ where
 
             if let Err(e) = lib_broadcaster.send(lib_update) {
                 error!("Could not notify LIB update to services: {e}");
+            }
+
+            let sessions = cryptarchia.active_sessions_numbers(&new_lib)?;
+            for (service, session_number) in &sessions {
+                let prev_session_num = previous_session_numbers.get(service).copied().unwrap_or(0);
+
+                if session_number != &prev_session_num {
+                    if let Ok(providers) = cryptarchia.active_session_providers(&new_lib, *service)
+                    {
+                        let update = SessionUpdate {
+                            session_number: *session_number,
+                            providers,
+                        };
+
+                        let broadcast_future = match service {
+                            ServiceType::BlendNetwork => {
+                                broadcast_blend_session(relays.broadcast_relay(), update).boxed()
+                            }
+                            ServiceType::DataAvailability => {
+                                broadcast_da_session(relays.broadcast_relay(), update).boxed()
+                            }
+                        };
+
+                        if let Err(e) = broadcast_future.await {
+                            error!("Failed to broadcast session update for {service:?}: {e}");
+                        }
+                    } else {
+                        error!("Could not get session providers for service: {service:?}");
+                    }
+                }
             }
         }
 
@@ -1474,6 +1549,26 @@ async fn broadcast_finalized_block(
 ) -> Result<(), DynError> {
     broadcast_relay
         .send(BlockBroadcastMsg::BroadcastFinalizedBlock(block_info))
+        .await
+        .map_err(|(error, _)| Box::new(error) as DynError)
+}
+
+async fn broadcast_blend_session(
+    broadcast_relay: &BroadcastRelay,
+    session: SessionUpdate,
+) -> Result<(), DynError> {
+    broadcast_relay
+        .send(BlockBroadcastMsg::BroadcastBlendSession(session))
+        .await
+        .map_err(|(error, _)| Box::new(error) as DynError)
+}
+
+async fn broadcast_da_session(
+    broadcast_relay: &BroadcastRelay,
+    session: SessionUpdate,
+) -> Result<(), DynError> {
+    broadcast_relay
+        .send(BlockBroadcastMsg::BroadcastDASession(session))
         .await
         .map_err(|(error, _)| Box::new(error) as DynError)
 }
