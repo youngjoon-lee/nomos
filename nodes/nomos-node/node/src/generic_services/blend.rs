@@ -23,7 +23,7 @@ use nomos_blend_service::{
     epoch_info::{PolEpochInfo, PolInfoProvider as PolInfoProviderTrait},
     membership::service::Adapter,
 };
-use nomos_core::{codec::SerdeOp as _, crypto::ZkHash};
+use nomos_core::{codec::DeserializeOp as _, crypto::ZkHash};
 use nomos_da_sampling::network::NetworkAdapter;
 use nomos_libp2p::PeerId;
 use nomos_time::backends::NtpTimeBackend;
@@ -114,11 +114,11 @@ fn loop_until_valid_proof(
     // be a minimum network size that is larger than 2.
     loop {
         let Ok(proof_of_quota) =
-            ProofOfQuota::deserialize(&random_sized_bytes::<{ size_of::<ProofOfQuota>() }>()[..])
+            ProofOfQuota::from_bytes(&random_sized_bytes::<{ size_of::<ProofOfQuota>() }>()[..])
         else {
             continue;
         };
-        let Ok(proof_of_selection) = ProofOfSelection::deserialize::<ProofOfSelection>(
+        let Ok(proof_of_selection) = ProofOfSelection::from_bytes(
             &random_sized_bytes::<{ size_of::<ProofOfSelection>() }>()[..],
         ) else {
             continue;
