@@ -41,24 +41,16 @@ pub fn decode_signed_mantle_tx(input: &[u8]) -> IResult<&[u8], SignedMantleTx> {
     {
         Ok((
             input,
-            SignedMantleTx::new_unverified(
-                mantle_tx,
-                ops_proofs.into_iter().map(Some).collect(),
-                ledger_tx_proof,
-            ),
+            SignedMantleTx::new_unverified(mantle_tx, ops_proofs, ledger_tx_proof),
         ))
     }
 
     // In release mode without test/debug, we need to verify
     #[cfg(not(any(test, debug_assertions)))]
     {
-        SignedMantleTx::new(
-            mantle_tx,
-            ops_proofs.into_iter().map(Some).collect(),
-            ledger_tx_proof,
-        )
-        .map(|tx| (input, tx))
-        .map_err(|_| nom::Err::Error(Error::new(input, ErrorKind::Verify)))
+        SignedMantleTx::new(mantle_tx, ops_proofs, ledger_tx_proof)
+            .map(|tx| (input, tx))
+            .map_err(|_| nom::Err::Error(Error::new(input, ErrorKind::Verify)))
     }
 }
 
@@ -359,9 +351,6 @@ fn decode_op_proof<'a>(input: &'a [u8], op: &Op) -> IResult<&'a [u8], OpProof> {
             panic!("OpProof::LeaderClaimProof not yet implemented");
         })
         .parse(input),
-        Op::Native(_) => {
-            unreachable!("Native ops should not be present in the proof")
-        }
     }
 }
 
@@ -658,9 +647,6 @@ fn encode_op(op: &Op) -> Vec<u8> {
             bytes.extend(encode_byte(opcode::LEADER_CLAIM));
             bytes.extend(encode_leader_claim(op));
         }
-        Op::Native(_) => {
-            unimplemented!("Native operation is deprecated and will be removed");
-        }
     }
     bytes
 }
@@ -675,23 +661,23 @@ fn encode_ops(ops: &[Op]) -> Vec<u8> {
 }
 
 /// Encode proofs
-fn encode_op_proof(proof: Option<&OpProof>, op: &Op) -> Vec<u8> {
+fn encode_op_proof(proof: &OpProof, op: &Op) -> Vec<u8> {
     match (proof, op) {
-        (Some(OpProof::Ed25519Sig(sig)), Op::ChannelInscribe(_) | Op::ChannelBlob(_)) => {
+        (OpProof::Ed25519Sig(sig), Op::ChannelInscribe(_) | Op::ChannelBlob(_)) => {
             encode_ed25519_signature(sig)
         }
         (
-            Some(OpProof::ZkAndEd25519Sigs {
+            OpProof::ZkAndEd25519Sigs {
                 zk_sig,
                 ed25519_sig,
-            }),
+            },
             Op::ChannelSetKeys(_),
         ) => {
             let mut bytes = encode_zk_signature(zk_sig);
             bytes.extend(encode_ed25519_signature(ed25519_sig));
             bytes
         }
-        (Some(OpProof::ZkSig(sig)), Op::SDPDeclare(_) | Op::SDPWithdraw(_) | Op::SDPActive(_)) => {
+        (OpProof::ZkSig(sig), Op::SDPDeclare(_) | Op::SDPWithdraw(_) | Op::SDPActive(_)) => {
             encode_zk_signature(sig)
         }
         (_, Op::LeaderClaim(_)) => {
@@ -703,10 +689,10 @@ fn encode_op_proof(proof: Option<&OpProof>, op: &Op) -> Vec<u8> {
     }
 }
 
-fn encode_ops_proofs(proofs: &[Option<OpProof>], ops: &[Op]) -> Vec<u8> {
+fn encode_ops_proofs(proofs: &[OpProof], ops: &[Op]) -> Vec<u8> {
     let mut bytes = Vec::new();
     for (proof, op) in proofs.iter().zip(ops.iter()) {
-        bytes.extend(encode_op_proof(proof.as_ref(), op));
+        bytes.extend(encode_op_proof(proof, op));
     }
     bytes
 }
@@ -898,9 +884,7 @@ mod tests {
                     execution_gas_price: 100,
                     storage_gas_price: 50
                 },
-                ops_proofs: vec![Some(OpProof::Ed25519Sig(Signature::from_bytes(
-                    &[0x00; 64]
-                )))],
+                ops_proofs: vec![OpProof::Ed25519Sig(Signature::from_bytes(&[0x00; 64]))],
                 ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128])
             }
         );
@@ -988,9 +972,7 @@ mod tests {
                     execution_gas_price: 100,
                     storage_gas_price: 50
                 },
-                ops_proofs: vec![Some(OpProof::Ed25519Sig(Signature::from_bytes(
-                    &[0xDD; 64]
-                )))],
+                ops_proofs: vec![OpProof::Ed25519Sig(Signature::from_bytes(&[0xDD; 64]))],
                 ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128])
             }
         );
@@ -1122,8 +1104,8 @@ mod tests {
                     storage_gas_price: 50
                 },
                 ops_proofs: vec![
-                    Some(OpProof::Ed25519Sig(Signature::from_bytes(&[0xAA; 64]))),
-                    Some(OpProof::Ed25519Sig(Signature::from_bytes(&[0xBB; 64])))
+                    OpProof::Ed25519Sig(Signature::from_bytes(&[0xAA; 64])),
+                    OpProof::Ed25519Sig(Signature::from_bytes(&[0xBB; 64]))
                 ],
                 ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128]),
             }
