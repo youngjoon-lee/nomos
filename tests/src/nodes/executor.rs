@@ -62,7 +62,7 @@ use nomos_node::{
     api::testing::handlers::HistoricSamplingRequest,
     config::{blend::BlendConfig, mempool::MempoolConfig},
 };
-use nomos_sdp::BlockEvent;
+use nomos_sdp::{BlockEvent, SdpSettings};
 use nomos_time::{
     TimeServiceSettings,
     backends::{NtpTimeBackendSettings, ntp::async_client::NTPClientSettings},
@@ -563,7 +563,9 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             trigger_sampling_delay: adjust_timeout(Duration::from_secs(5)),
         },
         membership: config.membership_config.service_settings,
-        sdp: (),
+        sdp: SdpSettings {
+            declaration_id: None,
+        },
         wallet: nomos_wallet::WalletServiceSettings {
             known_keys: HashSet::from_iter([config.consensus_config.leader_config.pk]),
         },
