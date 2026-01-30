@@ -1,5 +1,6 @@
 pub mod errors;
 pub mod secured_key;
+mod x25519;
 
 mod ed25519;
 mod zk;
@@ -12,6 +13,10 @@ pub use crate::keys::{
     ed25519::{
         ED25519_PUBLIC_KEY_SIZE, ED25519_SECRET_KEY_SIZE, ED25519_SIGNATURE_SIZE, Ed25519Key,
         PublicKey as Ed25519PublicKey, Signature as Ed25519Signature, UnsecuredEd25519Key,
+    },
+    x25519::{
+        SharedKey, X25519PrivateKey, X25519PublicKey, X25519_PUBLIC_KEY_LENGTH,
+        X25519_SECRET_KEY_LENGTH, X25519_SHARED_KEY_LENGTH,
     },
     zk::{PublicKey as ZkPublicKey, Signature as ZkSignature, UnsecuredZkKey, ZkKey},
 };

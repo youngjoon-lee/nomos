@@ -6,10 +6,7 @@ use rand_core::CryptoRngCore;
 use serde::Deserialize;
 use zeroize::ZeroizeOnDrop;
 
-use crate::{
-    keys::{errors::KeyError, secured_key::SecuredKey},
-    operators::ed25519::derive_x25519::X25519PrivateKey,
-};
+use crate::keys::{X25519PrivateKey, errors::KeyError, secured_key::SecuredKey};
 
 mod private;
 pub use self::private::{KEY_SIZE as ED25519_SECRET_KEY_SIZE, UnsecuredEd25519Key};
