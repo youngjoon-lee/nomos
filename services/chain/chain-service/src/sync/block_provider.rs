@@ -7,7 +7,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use futures::{StreamExt as _, TryStreamExt as _, future, stream, stream::BoxStream};
+use futures::{StreamExt as _, TryStreamExt as _, stream, stream::BoxStream};
 use lb_core::{block::Block, header::HeaderId};
 use lb_cryptarchia_engine::{Branch, Slot};
 use lb_cryptarchia_sync::{BlocksResponse, ProviderResponse};
@@ -154,8 +154,7 @@ where
                         .ok_or_else(|| DynError::from(GetBlocksError::BlockNotFound(id)))
                 }
             })
-            .map_err(DynError::from)
-            .take_while(|result| future::ready(result.is_ok()));
+            .map_err(DynError::from);
 
         Box::pin(stream)
     }
@@ -401,7 +400,15 @@ where
             remaining_limit,
         )?;
 
-        storage_path.extend(engine_path.iter());
+        // Skip the first element of engine_path if it duplicates the last element of
+        // storage_path (the LIB block appears as the last immutable entry and also as
+        // the starting point of the in-engine walk, so it would be sent twice otherwise).
+        let skip = if storage_path.last() == engine_path.front().as_ref() {
+            1
+        } else {
+            0
+        };
+        storage_path.extend(engine_path.iter().skip(skip));
 
         Ok(storage_path)
     }

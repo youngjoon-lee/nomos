@@ -467,7 +467,10 @@ impl NetworkBehaviour for Behaviour {
             return Poll::Pending;
         }
 
-        if let Poll::Ready(Some(_)) = self.receiving_block_responses.poll_next_unpin(cx) {
+        if let Poll::Ready(Some(result)) = self.receiving_block_responses.poll_next_unpin(cx) {
+            if let Err(e) = result {
+                error!("Error receiving block responses: {}", e);
+            }
             return Poll::Pending;
         }
 
