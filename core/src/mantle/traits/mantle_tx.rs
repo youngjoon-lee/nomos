@@ -1,6 +1,7 @@
 use crate::mantle::{
-    GasCalculator, MantleTx, Op, OpProof, TxHash,
+    GasCalculator, Op, OpProof,
     traits::{Hashable, StorageSize},
+    transactions::{hash::TxHash, mantle_tx::MantleTx},
 };
 
 pub type OpWithProof<'a> = (&'a Op, &'a OpProof);

@@ -15,7 +15,7 @@ use lb_core::{
     block::BlockNumber,
     events::{Events, HeaderEvent, TxEvent},
     mantle::{
-        NoteId, Op, TxHash, Utxo, Value, VerificationError,
+        NoteId, Op, Utxo, Value, VerificationError,
         gas::{Gas, GasConstants, GasCost, GasOverflow},
         ledger::Operation as _,
         ops::{
@@ -26,7 +26,7 @@ use lb_core::{
             leader_claim::LeaderClaimExecutionContext,
         },
         traits::{GenesisTx, MantleTxWithProofs, PreverifiedMantleTx},
-        transactions::{GasPrices, MantleTxContext, MantleTxGasContext},
+        transactions::{GasPrices, MantleTxGasContext, hash::TxHash, mantle_tx::MantleTxContext},
     },
     proofs::leader_proof,
 };
@@ -719,9 +719,8 @@ mod tests {
             },
             traits::Hashable as _,
             transactions::{
-                Ops,
+                Ops, OpsProofs,
                 states::{Preverified, Unverified},
-                tx::OpsProofs,
             },
         },
         proofs::{

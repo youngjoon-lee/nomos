@@ -1,6 +1,6 @@
 use crate::{
     crypto::{Digest as _, Hash, Hasher},
-    mantle::{TxHash, traits::Hashable},
+    mantle::{traits::Hashable, transactions::hash::TxHash},
 };
 
 pub fn node(left: impl AsRef<[u8]>, right: impl AsRef<[u8]>) -> [u8; 32] {
@@ -35,9 +35,10 @@ mod tests {
 
     use super::*;
     use crate::mantle::{
-        MantleTx, Note, Op,
+        Note, Op,
         ledger::{Inputs, Outputs},
         ops::transfer::TransferOp,
+        transactions::mantle_tx::MantleTx,
     };
 
     fn create_random_tx(seed: u32) -> MantleTx {

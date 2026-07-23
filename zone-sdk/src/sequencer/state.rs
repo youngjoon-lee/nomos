@@ -9,7 +9,7 @@ use lb_core::{
             channel::{ChannelId, MsgId, inscribe::Inscription},
         },
         traits::Hashable as _,
-        transactions::{TxHash, states::Unverified},
+        transactions::{hash::TxHash, states::Unverified},
     },
 };
 use rpds::HashTrieSetSync;
@@ -975,7 +975,7 @@ impl TxState {
 mod tests {
     use lb_core::mantle::{
         MantleTx, Op::ChannelInscribe, ops::channel::inscribe::InscriptionOp,
-        traits::Hashable as _, transactions::tx::OpsProofs,
+        traits::Hashable as _, transactions::OpsProofs,
     };
     use lb_key_management_system_service::keys::Ed25519PublicKey;
 
