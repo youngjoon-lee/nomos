@@ -68,12 +68,12 @@ impl References {
     /// Constructs a `References` instance from a list of transactions,
     /// extracting their hashes.
     #[must_use]
-    pub(crate) fn from_block_transactions<Tx>(transactions: BlockTransactions<Tx>) -> Self
+    pub(crate) fn from_block_transactions<Tx>(transactions: &BlockTransactions<Tx>) -> Self
     where
         Tx: Hashable<Hash = TxHash>,
     {
         Self {
-            mempool_transactions: transactions.map(|transaction| Tx::hash(&transaction)),
+            mempool_transactions: transactions.map_ref(|transaction| Tx::hash(transaction)),
         }
     }
 }
@@ -291,7 +291,7 @@ impl<Tx> Block<Tx> {
     {
         Proposal {
             header: self.header,
-            references: References::from_block_transactions(self.transactions),
+            references: References::from_block_transactions(&self.transactions),
             signature: self.signature,
         }
     }
