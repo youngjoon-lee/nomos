@@ -493,13 +493,11 @@ impl DeclarationMessage {
         };
 
         // From the
-        // [spec](https://www.notion.so/nomos-tech/Service-Declaration-Protocol-Specification-1fd261aa09df819ca9f8eb2bdfd4ec1dw):
+        // [spec](https://lip.logos.co/blockchain/raw/bedrock-service-declaration-protocol.html#declaration-storage):
         // declaration_id = Hash(service||provider_id||zk_id||locators)
         hasher.update(service.as_bytes());
         hasher.update(self.provider_id.0);
-        for number in self.zk_id.as_fr().0.0 {
-            hasher.update(number.to_le_bytes());
-        }
+        hasher.update(fr_to_bytes(self.zk_id.as_fr()));
         for locator in &self.locators {
             hasher.update(locator.0.as_ref());
         }
