@@ -7,18 +7,20 @@ use crate::{
     mantle::{
         MantleTx, Value, VerificationError,
         gas::{Gas, GasCalculator, GasConstants, GasCost, GasOverflow},
-        ledger::Operation as _,
+        ledger::Operation,
         ops::{
             Op, OpProof,
             channel::{
                 channel_transfer::ChannelTransferValidationContext,
-                config::ChannelConfigValidationContext, deposit::DepositValidationContext,
-                inscribe::InscriptionValidationContext, withdraw::WithdrawValidationContext,
+                config::ChannelConfigValidationContext,
+                deposit::DepositValidationContext,
+                inscribe::{InscriptionPreverificationContext, InscriptionValidationContext},
+                withdraw::WithdrawValidationContext,
             },
-            leader_claim::LeaderClaimValidationContext,
+            leader_claim::{LeaderClaimPreverificationContext, LeaderClaimVerificationContext},
             sdp::{
-                SDPActiveValidationContext, SDPDeclareValidationContext,
-                SDPWithdrawValidationContext,
+                SDPActiveValidationContext, SDPDeclareOp, SDPDeclareVerificationContext,
+                SDPWithdrawValidationContext, declare::SDPDeclarePreverificationContext,
             },
             transfer::TransferValidationContext,
         },
@@ -104,9 +106,9 @@ impl SignedMantleTx<Unverified> {
         })
     }
 
-    // TODO: Might drop proofs after verification. This TODO is carried over from
-    // the original code.
-    fn verify_stateless_op(
+    // TODO: Might drop proofs after verification.
+    //  This is carried over from the original code.
+    fn preverify_op(
         op_index: usize,
         op: &Op,
         proof: &OpProof,
@@ -114,41 +116,56 @@ impl SignedMantleTx<Unverified> {
     ) -> Result<(), VerificationError> {
         // TODO: Add more info to errors (e.g. op_index)
         match (op, proof) {
-            (Op::ChannelInscribe(op), OpProof::Ed25519Sig(proof)) => op
-                .verify_stateless(tx_hash_view, proof)
-                .map_err(VerificationError::ChannelVerificationError),
+            (Op::ChannelInscribe(op), OpProof::Ed25519Sig(proof)) => {
+                let context = InscriptionPreverificationContext {
+                    tx_hash_view,
+                    proof,
+                };
+                op.preverify(&context)
+                    .map_err(VerificationError::ChannelVerificationError)
+            }
             (Op::ChannelConfig(op), OpProof::ChannelMultiSigProof(_proof)) => op
-                .verify_stateless()
+                .preverify(&())
                 .map_err(VerificationError::ChannelVerificationError),
             (Op::ChannelDeposit(op), OpProof::ZkSig(_proof)) => op
-                .verify_stateless()
+                .preverify(&())
                 .map_err(VerificationError::ChannelVerificationError),
             (Op::ChannelWithdraw(op), OpProof::ChannelMultiSigProof(_proof)) => op
-                .verify_stateless()
+                .preverify(&())
                 .map_err(VerificationError::ChannelVerificationError),
             (Op::ChannelTransfer(op), OpProof::ChannelMultiSigProof(_proof)) => op
-                .verify_stateless()
+                .preverify(&())
                 .map_err(VerificationError::ChannelVerificationError),
             (
                 Op::SDPDeclare(op),
                 OpProof::ZkAndEd25519Sigs {
-                    zk_sig: _zk_sig,
-                    ed25519_sig: proof_ed25519_signature,
+                    zk_sig: _proof_zk,
+                    ed25519_sig: proof_ed25519,
                 },
-            ) => op
-                .verify_stateless(tx_hash_view, proof_ed25519_signature)
-                .map_err(VerificationError::SDPVerificationError),
+            ) => {
+                let context = SDPDeclarePreverificationContext {
+                    tx_hash_view,
+                    proof_ed25519,
+                };
+                <SDPDeclareOp as Operation<SDPDeclareVerificationContext>>::preverify(op, &context)
+                    .map_err(VerificationError::SDPVerificationError)
+            }
             (Op::SDPWithdraw(op), OpProof::ZkSig(_proof)) => op
-                .verify_stateless()
+                .preverify(&())
                 .map_err(VerificationError::SDPVerificationError),
             (Op::SDPActive(op), OpProof::ZkSig(_proof)) => op
-                .verify_stateless()
+                .preverify(&())
                 .map_err(VerificationError::SDPVerificationError),
-            (Op::LeaderClaim(op), OpProof::PoC(proof)) => op
-                .verify_stateless(tx_hash_view, proof)
-                .map_err(VerificationError::LeaderClaimVerificationError),
+            (Op::LeaderClaim(op), OpProof::PoC(proof)) => {
+                let context = LeaderClaimPreverificationContext {
+                    tx_hash_view,
+                    proof,
+                };
+                op.preverify(&context)
+                    .map_err(VerificationError::LeaderClaimVerificationError)
+            }
             (Op::Transfer(op), OpProof::ZkSig(_proof)) => op
-                .verify_stateless()
+                .preverify(&())
                 .map_err(VerificationError::TransferVerificationError),
             _ => Err(VerificationError::IncorrectProofType {
                 op_type: op.as_str(),
@@ -157,11 +174,11 @@ impl SignedMantleTx<Unverified> {
         }
     }
 
-    fn verify_stateless_ops(&self) -> Result<(), VerificationError> {
+    fn preverify_ops(&self) -> Result<(), VerificationError> {
         let tx_hash = self.hash();
         let tx_hash_view = TxHashView::new(tx_hash);
         for (op_index, (op, proof)) in self.ops_with_proof().enumerate() {
-            Self::verify_stateless_op(op_index, op, proof, &tx_hash_view)?;
+            Self::preverify_op(op_index, op, proof, &tx_hash_view)?;
         }
         Ok(())
     }
@@ -182,7 +199,7 @@ impl SignedMantleTx<Unverified> {
     ///   and [`LeaderClaimOp`](crate::mantle::ops::leader_claim::LeaderClaimOp) have valid signatures/proofs.
     pub fn preverify(self) -> Result<SignedMantleTx<Preverified>, VerificationError> {
         self.ensure_one_proof_per_op()?;
-        self.verify_stateless_ops()?;
+        self.preverify_ops()?;
         Ok(self.into_preverified())
     }
 
@@ -233,7 +250,7 @@ impl SignedMantleTx<Preverified> {
                     channels: helper.get_channels(),
                     block_slot: helper.get_block_slot(),
                 };
-                op.validate(&channel_inscribe_context)
+                op.verify(&channel_inscribe_context)
                     .map_err(VerificationError::ChannelVerificationError)
             }
             (Op::ChannelConfig(op), OpProof::ChannelMultiSigProof(proof)) => {
@@ -242,7 +259,7 @@ impl SignedMantleTx<Preverified> {
                     tx_hash_view,
                     proof,
                 };
-                op.validate(&channel_config_context)
+                op.verify(&channel_config_context)
                     .map_err(VerificationError::ChannelVerificationError)
             }
             (Op::ChannelDeposit(op), OpProof::ZkSig(proof)) => {
@@ -253,7 +270,7 @@ impl SignedMantleTx<Preverified> {
                     tx_hash_view,
                     proof,
                 };
-                op.validate(&channel_deposit_context)
+                op.verify(&channel_deposit_context)
                     .map_err(VerificationError::ChannelVerificationError)
             }
             (Op::ChannelWithdraw(channel_withdraw_op), OpProof::ChannelMultiSigProof(proof)) => {
@@ -267,7 +284,7 @@ impl SignedMantleTx<Preverified> {
                     op_index,
                 };
                 channel_withdraw_op
-                    .validate(&channel_withdraw_context)
+                    .verify(&channel_withdraw_context)
                     .map_err(VerificationError::ChannelVerificationError)
             }
             (Op::ChannelTransfer(op), OpProof::ChannelMultiSigProof(proof)) => {
@@ -280,7 +297,7 @@ impl SignedMantleTx<Preverified> {
                     op_index,
                     helper,
                 };
-                op.validate(&context)
+                op.verify(&context)
                     .map_err(VerificationError::ChannelVerificationError)
             }
             (
@@ -290,7 +307,7 @@ impl SignedMantleTx<Preverified> {
                     ed25519_sig: proof_ed25519_signature,
                 },
             ) => {
-                let context = SDPDeclareValidationContext {
+                let context = SDPDeclareVerificationContext {
                     utxo_tree: helper.get_utxos(),
                     channels: helper.get_channels(),
                     locked_notes: helper.get_locked_notes(),
@@ -300,7 +317,7 @@ impl SignedMantleTx<Preverified> {
                     declarations: helper.get_declarations_by_service(op.service_type)?,
                     min_stake: helper.get_min_stake(),
                 };
-                op.validate(&context)
+                op.verify(&context)
                     .map_err(VerificationError::SDPVerificationError)
             }
             (Op::SDPWithdraw(op), OpProof::ZkSig(proof)) => {
@@ -311,7 +328,7 @@ impl SignedMantleTx<Preverified> {
                     tx_hash_view,
                     proof,
                 };
-                op.validate(&context)
+                op.verify(&context)
                     .map_err(VerificationError::SDPVerificationError)
             }
             (Op::SDPActive(op), OpProof::ZkSig(proof)) => {
@@ -321,17 +338,17 @@ impl SignedMantleTx<Preverified> {
                     proof,
                     epoch: helper.get_epoch(),
                 };
-                op.validate(&context)
+                op.verify(&context)
                     .map_err(VerificationError::SDPVerificationError)
             }
             (Op::LeaderClaim(op), OpProof::PoC(proof)) => {
-                let context = LeaderClaimValidationContext {
+                let context = LeaderClaimVerificationContext {
                     nullifiers: helper.get_nullifiers(),
                     claimable_vouchers_root: helper.get_claimable_vouchers_root(),
                     proof,
                     tx_hash_view,
                 };
-                op.validate(&context)
+                op.verify(&context)
                     .map_err(VerificationError::LeaderClaimVerificationError)
             }
             (Op::Transfer(op), OpProof::ZkSig(proof)) => {
@@ -342,7 +359,7 @@ impl SignedMantleTx<Preverified> {
                     tx_hash_view,
                     proof,
                 };
-                op.validate(&context)
+                op.verify(&context)
                     .map_err(VerificationError::TransferVerificationError)
             }
             // SignedMantleTx<Preverified> invariant: Op/Proof pairs have been verified in

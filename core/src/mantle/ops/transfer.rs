@@ -52,18 +52,6 @@ impl TransferOp {
             .ok_or(TransferError::BalanceOverflow)?;
         Ok(balance)
     }
-
-    pub fn verify_stateless(&self) -> Result<(), TransferError> {
-        // Ensure the inputs is non-empty
-        if self.inputs.is_empty() {
-            return Err(TransferError::NoInputTransfer);
-        }
-
-        // Validate Outputs
-        self.outputs.validate()?;
-
-        Ok(())
-    }
 }
 
 impl OpId for TransferOp {
@@ -95,13 +83,33 @@ pub struct TransferValidationContext<'a> {
 }
 
 impl Operation<TransferValidationContext<'_>> for TransferOp {
+    type PreverificationContext<'a>
+        = ()
+    where
+        Self: 'a;
     type ExecutionContext<'a>
         = Utxos
     where
         Self: 'a;
-    type Error = TransferError;
+    type VerificationError = TransferError;
+    type ExecutionError = TransferError;
 
-    fn validate(&self, ctx: &TransferValidationContext<'_>) -> Result<(), Self::Error> {
+    fn preverify(
+        &self,
+        _context: &Self::PreverificationContext<'_>,
+    ) -> Result<(), Self::VerificationError> {
+        // Ensure the inputs is non-empty
+        if self.inputs.is_empty() {
+            return Err(TransferError::NoInputTransfer);
+        }
+
+        // Validate Outputs
+        self.outputs.validate()?;
+
+        Ok(())
+    }
+
+    fn verify(&self, ctx: &TransferValidationContext<'_>) -> Result<(), Self::ExecutionError> {
         // Validate Inputs
         self.inputs
             .validate_not_in_channel(ctx.locked_notes, ctx.channels, ctx.utxos)?;
@@ -118,7 +126,7 @@ impl Operation<TransferValidationContext<'_>> for TransferOp {
     fn execute(
         &self,
         mut utxos: Self::ExecutionContext<'_>,
-    ) -> Result<(Self::ExecutionContext<'_>, Vec<TxEvent>), Self::Error> {
+    ) -> Result<(Self::ExecutionContext<'_>, Vec<TxEvent>), Self::ExecutionError> {
         // Remove inputs from the ledger
         utxos = self.inputs.execute(utxos)?;
         // Add outputs from the ledger

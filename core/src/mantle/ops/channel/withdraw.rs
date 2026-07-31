@@ -24,12 +24,6 @@ pub struct ChannelWithdrawOp {
     pub inputs: Inputs,
 }
 
-impl ChannelWithdrawOp {
-    pub const fn verify_stateless(&self) -> Result<(), Error> {
-        Ok(())
-    }
-}
-
 impl OpId for ChannelWithdrawOp {
     fn op_bytes(&self) -> Vec<u8> {
         self.encode_to_vec()
@@ -52,13 +46,25 @@ pub struct WithdrawExecutionContext {
 }
 
 impl Operation<WithdrawValidationContext<'_>> for ChannelWithdrawOp {
+    type PreverificationContext<'a>
+        = ()
+    where
+        Self: 'a;
     type ExecutionContext<'a>
         = WithdrawExecutionContext
     where
         Self: 'a;
-    type Error = Error;
+    type VerificationError = Error;
+    type ExecutionError = Error;
 
-    fn validate(&self, ctx: &WithdrawValidationContext<'_>) -> Result<(), Self::Error> {
+    fn preverify(
+        &self,
+        _context: &Self::PreverificationContext<'_>,
+    ) -> Result<(), Self::VerificationError> {
+        Ok(())
+    }
+
+    fn verify(&self, ctx: &WithdrawValidationContext<'_>) -> Result<(), Self::ExecutionError> {
         verify_channel_multi_sig(
             &self.channel_id,
             ctx.proof,
@@ -113,7 +119,7 @@ impl Operation<WithdrawValidationContext<'_>> for ChannelWithdrawOp {
     fn execute(
         &self,
         mut ctx: Self::ExecutionContext<'_>,
-    ) -> Result<(Self::ExecutionContext<'_>, Vec<TxEvent>), Self::Error> {
+    ) -> Result<(Self::ExecutionContext<'_>, Vec<TxEvent>), Self::ExecutionError> {
         // Release the inputs from the channel. The notes keep their NoteId,
         // value and ZkPublicKey and stay in the ledger as regular notes.
         for note_id in self.inputs.iter() {

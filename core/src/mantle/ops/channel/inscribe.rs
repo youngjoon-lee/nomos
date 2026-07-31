@@ -43,19 +43,11 @@ impl InscriptionOp {
         hasher.update(self.encode().as_ref());
         MsgId(hasher.finalize().into())
     }
+}
 
-    pub fn verify_stateless(
-        &self,
-        tx_hash_view: &TxHashView,
-        proof: &Ed25519Signature,
-    ) -> Result<(), Error> {
-        // Check the signature
-        self.signer
-            .verify(tx_hash_view.as_bytes(), proof)
-            .map_err(|_error| Error::InvalidSignature)?;
-
-        Ok(())
-    }
+pub struct InscriptionPreverificationContext<'a> {
+    pub tx_hash_view: &'a TxHashView,
+    pub proof: &'a Ed25519Signature,
 }
 
 pub struct InscriptionValidationContext<'a> {
@@ -69,13 +61,30 @@ pub struct InscriptionExecutionContext {
 }
 
 impl Operation<InscriptionValidationContext<'_>> for InscriptionOp {
+    type PreverificationContext<'a>
+        = InscriptionPreverificationContext<'a>
+    where
+        Self: 'a;
     type ExecutionContext<'a>
         = InscriptionExecutionContext
     where
         Self: 'a;
-    type Error = Error;
+    type VerificationError = Error;
+    type ExecutionError = Error;
 
-    fn validate(&self, ctx: &InscriptionValidationContext<'_>) -> Result<(), Self::Error> {
+    fn preverify(
+        &self,
+        context: &Self::PreverificationContext<'_>,
+    ) -> Result<(), Self::VerificationError> {
+        // Check the signature
+        self.signer
+            .verify(context.tx_hash_view.as_bytes(), context.proof)
+            .map_err(|_error| Error::InvalidSignature)?;
+
+        Ok(())
+    }
+
+    fn verify(&self, ctx: &InscriptionValidationContext<'_>) -> Result<(), Self::ExecutionError> {
         // Check if the channel exist otherwise the inscription is valid only if and
         // only if parent == ZERO
         if let Some(channel) = ctx.channels.channel_state(&self.channel_id) {
@@ -112,7 +121,7 @@ impl Operation<InscriptionValidationContext<'_>> for InscriptionOp {
     fn execute(
         &self,
         mut ctx: Self::ExecutionContext<'_>,
-    ) -> Result<(Self::ExecutionContext<'_>, Vec<TxEvent>), Self::Error> {
+    ) -> Result<(Self::ExecutionContext<'_>, Vec<TxEvent>), Self::ExecutionError> {
         // if the channel doesn't exist, create it
         let channel = ctx
             .channels
