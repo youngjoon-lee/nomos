@@ -15,7 +15,7 @@ use crate::{
         channel::{ChannelState, Channels, Error},
         ledger::Operation,
         ops::channel::config::Keys,
-        transactions::hash::TxHash,
+        transactions::hash::TxHashView,
     },
 };
 
@@ -43,12 +43,23 @@ impl InscriptionOp {
         hasher.update(self.encode().as_ref());
         MsgId(hasher.finalize().into())
     }
+
+    pub fn verify_stateless(
+        &self,
+        tx_hash_view: &TxHashView,
+        proof: &Ed25519Signature,
+    ) -> Result<(), Error> {
+        // Check the signature
+        self.signer
+            .verify(tx_hash_view.as_bytes(), proof)
+            .map_err(|_error| Error::InvalidSignature)?;
+
+        Ok(())
+    }
 }
 
 pub struct InscriptionValidationContext<'a> {
     pub channels: &'a Channels,
-    pub tx_hash: &'a TxHash,
-    pub inscribe_sig: &'a Ed25519Signature,
     pub block_slot: Slot,
 }
 
@@ -93,15 +104,6 @@ impl Operation<InscriptionValidationContext<'_>> for InscriptionOp {
                 parent: self.parent.into(),
                 actual: MsgId::root().into(),
             });
-        }
-
-        // Check the signature
-        if self
-            .signer
-            .verify(ctx.tx_hash.as_signing_bytes().as_ref(), ctx.inscribe_sig)
-            .is_err()
-        {
-            return Err(Error::InvalidSignature);
         }
 
         Ok(())

@@ -8,7 +8,7 @@ use crate::{
     events::TxEvent,
     mantle::{
         ledger::{Declarations, Operation},
-        transactions::hash::TxHash,
+        transactions::hash::TxHashView,
     },
     sdp::{self, locked_notes::LockedNotes},
 };
@@ -19,8 +19,8 @@ pub struct SDPWithdrawValidationContext<'a> {
     pub declarations: &'a Declarations,
     pub epoch: Epoch,
     pub locked_notes: &'a LockedNotes,
-    pub tx_hash: &'a TxHash,
-    pub sdp_withdraw_sig: &'a ZkSignature,
+    pub tx_hash_view: &'a TxHashView,
+    pub proof: &'a ZkSignature,
 }
 
 pub struct SDPWithdrawExecutionContext {
@@ -78,8 +78,8 @@ impl Operation<SDPWithdrawValidationContext<'_>> for SDPWithdrawOp {
             .expect("The Operation has been checked above");
         if !ZkPublicKey::verify_multi(
             &[note.pk, declaration.zk_id],
-            &ctx.tx_hash.to_fr(),
-            ctx.sdp_withdraw_sig,
+            ctx.tx_hash_view.as_fr(),
+            ctx.proof,
         ) {
             return Err(SdpError::InvalidZkSignature);
         }

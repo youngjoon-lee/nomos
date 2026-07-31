@@ -9,7 +9,7 @@ use crate::{
         channel::{Channels, Error},
         ledger::{Inputs, InputsError, Operation, Outputs, Utxos},
         ops::{OpId, channel::ChannelId},
-        transactions::hash::TxHash,
+        transactions::hash::{TxHash, TxHashView},
     },
     sdp::locked_notes::LockedNotes,
 };
@@ -40,6 +40,10 @@ impl DepositOp {
 
         Ok(Outputs::try_new(notes)?)
     }
+
+    pub const fn verify_stateless(&self) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 impl OpId for DepositOp {
@@ -52,8 +56,8 @@ pub struct DepositValidationContext<'a> {
     pub channels: &'a Channels,
     pub locked_notes: &'a LockedNotes,
     pub utxos: &'a Utxos,
-    pub tx_hash: &'a TxHash,
-    pub deposit_sig: &'a ZkSignature,
+    pub tx_hash_view: &'a TxHashView,
+    pub proof: &'a ZkSignature,
 }
 
 pub struct DepositExecutionContext {
@@ -82,8 +86,8 @@ impl Operation<DepositValidationContext<'_>> for DepositOp {
             .validate_not_in_channel(ctx.locked_notes, ctx.channels, ctx.utxos)?;
 
         // Check the signature
-        let pks = self.inputs.get_pk(ctx.utxos)?;
-        if !ZkPublicKey::verify_multi(&pks, &ctx.tx_hash.to_fr(), ctx.deposit_sig) {
+        let public_keys = self.inputs.get_pk(ctx.utxos)?;
+        if !ZkPublicKey::verify_multi(&public_keys, ctx.tx_hash_view.as_fr(), ctx.proof) {
             return Err(Error::InvalidSignature);
         }
 

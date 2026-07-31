@@ -8,7 +8,7 @@ use crate::{
     events::TxEvent,
     mantle::{
         ledger::{Declarations, Operation},
-        transactions::hash::TxHash,
+        transactions::hash::TxHashView,
     },
 };
 
@@ -16,8 +16,8 @@ const LOG_TARGET: &str = mantle::sdp::message::ACTIVE;
 
 pub struct SDPActiveValidationContext<'a> {
     pub declarations: &'a Declarations,
-    pub tx_hash: &'a TxHash,
-    pub active_sig: &'a ZkSignature,
+    pub tx_hash_view: &'a TxHashView,
+    pub proof: &'a ZkSignature,
     pub epoch: Epoch,
 }
 
@@ -34,7 +34,7 @@ impl Operation<SDPActiveValidationContext<'_>> for SDPActiveOp {
     type Error = SdpError;
 
     fn validate(&self, ctx: &SDPActiveValidationContext<'_>) -> Result<(), Self::Error> {
-        // Check the declaration exist
+        // Check the declaration exists
         let Some(declaration) = ctx.declarations.get(&self.declaration_id) else {
             return Err(SdpError::DeclarationNotFound(self.declaration_id));
         };
@@ -59,7 +59,7 @@ impl Operation<SDPActiveValidationContext<'_>> for SDPActiveOp {
         }
 
         // Check the signature over the `zk_id`
-        if !ZkPublicKey::verify_multi(&[declaration.zk_id], &ctx.tx_hash.to_fr(), ctx.active_sig) {
+        if !ZkPublicKey::verify_multi(&[declaration.zk_id], ctx.tx_hash_view.as_fr(), ctx.proof) {
             return Err(SdpError::InvalidZkSignature);
         }
 
