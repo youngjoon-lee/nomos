@@ -4206,6 +4206,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "serial_test",
  "tempfile",
  "tokio",
 ]
@@ -4909,6 +4910,7 @@ dependencies = [
  "serde_urlencoded",
  "serde_with",
  "serde_yaml",
+ "serial_test",
  "thiserror 2.0.18",
  "tikv-jemallocator",
  "time",
