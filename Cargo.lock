@@ -5008,7 +5008,6 @@ name = "logos-blockchain-sdp-service"
 version = "0.0.0"
 dependencies = [
  "async-trait",
- "futures",
  "logos-blockchain-chain-service",
  "logos-blockchain-core",
  "logos-blockchain-key-management-system-keys",
@@ -5076,7 +5075,6 @@ dependencies = [
 name = "logos-blockchain-tests"
 version = "0.0.0"
 dependencies = [
- "async-trait",
  "axum 0.7.9",
  "bincode",
  "cucumber",
