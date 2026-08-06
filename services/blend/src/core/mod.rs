@@ -30,7 +30,7 @@ use lb_blend::{
             OldEpochBlendingTokenCollector,
         },
     },
-    proofs::quota::inputs::prove::public::{CoreInputs, LeaderInputs},
+    proofs::quota::inputs::prove::public::{CoreInputs, LeaderInputs, PowInputs},
     scheduling::{
         EpochMessageScheduler,
         epoch::{EpochEvent, UninitializedEpochEventStream},
@@ -604,6 +604,7 @@ where
         PoQVerificationInputsMinusSigningKey {
             core: current_epoch_public_info.poq_core_public_inputs,
             leader: current_epoch_public_info.poq_leadership_public_inputs,
+            pow: PowInputs::unwired_placeholder(),
         },
         current_epoch_core_poq_generator
             .expect("Core PoQ generator must be present at startup: the proxy service only launches CoreMode when the node is part of the core membership."),
@@ -1050,6 +1051,7 @@ where
                 PoQVerificationInputsMinusSigningKey {
                     core: new_epoch_info.poq_core_public_inputs,
                     leader: new_epoch_info.poq_leadership_public_inputs,
+                    pow: PowInputs::unwired_placeholder(),
                 },
                 core_poq_generator,
                 new_epoch_info.epoch,

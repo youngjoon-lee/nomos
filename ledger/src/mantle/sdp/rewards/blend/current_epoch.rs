@@ -5,7 +5,7 @@ use lb_blend_message::{
     crypto::proofs::PoQVerificationInputsMinusSigningKey,
     encap::ProofsVerifier as ProofsVerifierTrait, reward::EpochRandomness,
 };
-use lb_blend_proofs::quota::inputs::prove::public::{CoreInputs, LeaderInputs};
+use lb_blend_proofs::quota::inputs::prove::public::{CoreInputs, LeaderInputs, PowInputs};
 use lb_core::{
     crypto::ZkHash,
     mantle::Value,
@@ -218,6 +218,7 @@ impl CurrentEpochTracker {
                 quota: core_quota,
             },
             leader: leader_input,
+            pow: PowInputs::unwired_placeholder(),
         })
     }
 }

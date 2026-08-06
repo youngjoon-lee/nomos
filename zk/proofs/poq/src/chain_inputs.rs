@@ -77,6 +77,8 @@ pub enum PoQInputsFromDataError {
     CoreQuotaMoreThan20Bits,
     #[error("Leader quota is greater than 20 bits")]
     LeaderQuotaMoreThan20Bits,
+    #[error("PoW quota is greater than 20 bits")]
+    PowQuotaMoreThan20Bits,
 }
 
 impl TryFrom<PoQChainInputsData> for PoQChainInputs {

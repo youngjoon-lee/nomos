@@ -271,7 +271,7 @@ mod tests {
         proofs::{
             quota::{
                 VerifiedProofOfQuota,
-                inputs::prove::public::{CoreInputs, LeaderInputs},
+                inputs::prove::public::{CoreInputs, LeaderInputs, PowInputs},
             },
             selection::{self, VerifiedProofOfSelection},
         },
@@ -305,6 +305,7 @@ mod tests {
                 lottery_0: Fr::ZERO,
                 lottery_1: Fr::ZERO,
             },
+            pow: PowInputs::unwired_placeholder(),
         }
     }
 
